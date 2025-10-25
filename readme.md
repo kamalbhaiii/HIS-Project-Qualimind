@@ -194,7 +194,7 @@ All tasks are tracked on **Jira**, linked via Slack, and reviewed each sprint.
 
 | Member | Primary Role | Secondary Role | Scrum Master | Product Owner |
 |---------|--------------|----------------|---------------|----------------|
-| Member 1 | Backend Developer | CI/CD Engineer | Sprint 0 | Sprint 5 |
+| Kamal | Backend Developer | CI/CD Engineer | Sprint 0 | Sprint 5 |
 | Member 2 | Frontend Developer | UI/UX Support | Sprint 1 | Sprint 2 |
 | Member 3 | UI/UX Designer | QA Support | Sprint 2 | Sprint 3 |
 | Member 4 | QA & Testing Lead | Backend Support | Sprint 3 | Sprint 4 |
