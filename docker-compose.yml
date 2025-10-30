@@ -1,0 +1,107 @@
+version: "3.9"
+
+name: qualimind
+
+x-healthcheck-postgres: &healthcheck-postgres
+  test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-qualimind}"]
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
+x-healthcheck-redis: &healthcheck-redis
+  test: ["CMD", "redis-cli", "ping"]
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
+networks:
+  qm-net:
+
+volumes:
+  pgdata:
+  redisdata:
+
+services:
+  # ---------- Infra ----------
+  postgres:
+    image: postgres:15
+    container_name: qm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-qualimind}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck: *healthcheck-postgres
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
+
+  redis:
+    image: redis:7
+    container_name: qm-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck: *healthcheck-redis
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
+
+  # ---------- Server (Express + TS) ----------
+  server:
+    container_name: qm-server
+    build:
+      context: ./server
+      target: dev               # requires a 'dev' stage in ./server/Dockerfile
+    command: ["pnpm", "dev"]    # nodemon + tsconfig-paths inside the image
+    environment:
+      NODE_ENV: development
+      APP_ENV: development
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./server:/app           # live code sync
+      - /app/node_modules       # keep node_modules inside container
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [qm-net]
+    profiles: ["backend"]
+
+  # ---------- Frontend (React + Vite) ----------
+  # frontend:
+  #   container_name: qm-frontend
+  #   build:
+  #     context: ./apps/frontend
+  #     target: dev
+  #   command: ["pnpm", "dev", "--host", "0.0.0.0"]
+  #   environment:
+  #     NODE_ENV: development
+  #     APP_ENV: development
+  #   ports:
+  #     - "5173:5173"
+  #   volumes:
+  #     - ./apps/frontend:/app
+  #     - /app/node_modules
+  #   networks: [qm-net]
+  #   profiles: ["frontend"]
+
+  # ---------- R Engine (plumber) ----------
+  # r-engine:
+  #   container_name: qm-r
+  #   build:
+  #     context: ./apps/r-engine
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     R_ENVIRON_USER: /home/ruser/.Renviron
+  #   ports:
+  #     - "8000:8000"
+  #   networks: [qm-net]
+  #   profiles: ["r"]
