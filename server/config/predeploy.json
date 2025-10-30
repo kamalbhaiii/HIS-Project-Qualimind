@@ -1,0 +1,4 @@
+{
+  "app": { "env": "predeploy" },
+  "rService": { "url": "https://staging-r.qualimind.app" }
+}

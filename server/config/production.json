@@ -1,0 +1,4 @@
+{
+  "app": { "env": "production" },
+  "rService": { "url": "https://r.qualimind.app" }
+}

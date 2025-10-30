@@ -1,0 +1,14 @@
+{
+  "database": {
+    "url": "DATABASE_URL"
+  },
+  "security": {
+    "jwtSecret": "JWT_SECRET"
+  },
+  "redis": {
+    "url": "REDIS_URL"
+  },
+  "rService": {
+    "url": "R_SERVICE_URL"
+  }
+}

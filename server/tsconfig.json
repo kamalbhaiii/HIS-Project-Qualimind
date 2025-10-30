@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "tests/**/*.ts"],
+  "compilerOptions": {
+    "types": ["vitest/globals"],
+    "module": "CommonJS",
+    "target": "ES2021",
+    "moduleResolution": "Node",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@config/*": ["src/config/*"],
+      "@core/*": ["src/core/*"],
+      "@loaders/*": ["src/loaders/*"],
+      "@middlewares/*": ["src/middlewares/*"],
+      "@routes/*": ["src/routes/*"],
+      "@schemas/*": ["src/schemas/*"],
+      "@services/*": ["src/services/*"],
+      "@jobs/*": ["src/jobs/*"],
+      "@utils/*": ["src/utils/*"]
+    }
+  }
+}
