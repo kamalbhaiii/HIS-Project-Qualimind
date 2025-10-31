@@ -1,4 +1,4 @@
 import { Redis } from 'ioredis';
-import { config } from '@config/index';
+import cfg from '@config/index';
 
-export const redis = new Redis(config.redisUrl);
+export const redis = new Redis(cfg.redis.url);
