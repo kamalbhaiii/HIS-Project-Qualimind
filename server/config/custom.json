@@ -1,14 +1,18 @@
 {
+  "app": {
+    "env": "APP_ENV",
+    "port": "PORT"
+  },
   "database": {
     "url": "DATABASE_URL"
-  },
-  "security": {
-    "jwtSecret": "JWT_SECRET"
   },
   "redis": {
     "url": "REDIS_URL"
   },
-  "rService": {
+  "security": {
+    "jwtSecret": "JWT_SECRET"
+  },
+    "rService": {
     "url": "R_SERVICE_URL"
   }
 }
