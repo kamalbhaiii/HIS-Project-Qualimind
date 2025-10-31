@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development APP_ENV=development nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/index.ts\"",
     "test:run": "cross-env NODE_ENV=testing APP_ENV=testing vitest run --require tsconfig-paths/register",
-    "start:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node dist/index.js",
-    "start:prod": "cross-env NODE_ENV=production APP_ENV=production node dist/index.js",
+    "start:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node dist/src/index.js",
+    "start:prod": "cross-env NODE_ENV=production APP_ENV=production node dist/src/index.js",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
     "prisma:generate": "node scripts/run-prisma.js generate",
