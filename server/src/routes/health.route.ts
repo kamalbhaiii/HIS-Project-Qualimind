@@ -14,8 +14,8 @@ const router = Router();
  *       200:
  *         description: Service is healthy
  */
-router.get('/', (_req, res) => {
-  res.json(getHealth());
+router.get('/', async (_req, res) => {
+  await res.json(await getHealth());
 });
 
 export default router;
