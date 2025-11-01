@@ -11,10 +11,10 @@
     "url": "http://localhost:8000"
   },
   "redis": {
-    "url": "rediss://redis:6379"
+    "url": "redis://redis:6379"
   },
   "database": {
-    "url": "postgresql://postgres:postgres@postgres:5432/qualimind?schema=public"
+    "url": "postgresql://postgres:postgres@postgres:5432/qualimind-dev?schema=public"
   },
   "security": {
     "jwtSecret": "thisisdevelopmentenvironment"

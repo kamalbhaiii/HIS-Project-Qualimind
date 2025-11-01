@@ -124,29 +124,19 @@ pnpm install
 
 ---
 
-### 4️⃣ Start Development Environment  
+### 4️⃣ Build & Run via Docker  
 
 ```bash
-pnpm -r dev
-```
-Starts:
-- Frontend → `http://localhost:5173`  
-- Backend → `http://localhost:5000`  
-- R Engine → `http://localhost:8000`
-
----
-
-### 5️⃣ Build & Run via Docker  
-
-```bash
-docker-compose up --build
+docker-compose --profile backend up -d --build
+docker compose exec server sh -lc "NODE_ENV=development pnpm prisma:generate"
+docker compose restart server
 ```
 
 This will start **frontend**, **backend**, **R service**, **Postgres**, and **Redis** containers.
 
 ---
 
-### 6️⃣ API Documentation  
+### 5️⃣ API Documentation  
 
 After running the backend, visit:  
 👉 **http://localhost:5000/docs** – Auto-generated Swagger docs.  
@@ -160,10 +150,11 @@ Frontend routes are listed under:
 
 | Environment | Purpose | Deployment | Branch |  
 |--------------|----------|-------------|----------|  
+| **Feature** | Sub-branches of Feature Development | Local | `feature/SCRUM-*` |
 | **Development** | Local dev builds | Local Docker | `develop` |  
-| **Testing** | Integration + QA | Local or CI | `release/*` |  
-| **Pre-deployment** | Staging for PO/SM review | Render (Free Tier) | `predeploy` |  
-| **Deployment** | Final production | AWS EC2 (Free Tier) | `main` |  
+| **Testing** | Integration + QA | Local or CI | `testing/*` |  
+| **Pre-deployment** | Staging for PO/SM review | Render (Free Tier) | `predep` |  
+| **Deployment** | Final production | AWS EC2 (Free Tier) | `master` |  
 
 ---
 

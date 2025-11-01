@@ -5,22 +5,23 @@ import {redis} from '@loaders/redis'
 export async function getHealth() {
   const pong = await redis.ping();
   try{
-    await prisma.$queryRaw`SELECT 1`;
+    const resp = await prisma.$queryRaw`SELECT 1`;
     return {
-    status: 'ok',
+    status: `${cfg.app.env} env ok`,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     database: 'ok',
     cache: pong === 'PONG' ? 'ok' : 'error'
     };
   }
-  catch {
+  catch (error) {
     return {
-      status: "error",
+      status: `${cfg.app.env} env error`,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
       database: 'error',
-      cache: pong === 'PONG' ? 'ok' : 'error'
+      cache: pong === 'PONG' ? 'ok' : 'error',
+      error: `${error}`
     }
   }
 }
