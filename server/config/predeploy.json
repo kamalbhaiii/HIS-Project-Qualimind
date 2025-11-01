@@ -1,4 +1,22 @@
 {
-  "app": { "env": "predeploy" },
-  "rService": { "url": "https://staging-r.qualimind.app" }
+  "app": {
+    "port": 5000,
+    "env": "predeploy"
+  },
+  "rateLimit": {
+    "windowMs": 60000,
+    "max": 100
+  },
+  "rService": {
+    "url": "http://localhost:8000"
+  },
+  "redis": {
+    "url": "rediss://redis:6379"
+  },
+  "database": {
+    "url": "postgresql://neondb_owner:npg_UYT08XKvCGLF@ep-dry-river-ag2v6cgd-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+  },
+  "security": {
+    "jwtSecret": "thisispredeploymentenvironment"
+  }
 }

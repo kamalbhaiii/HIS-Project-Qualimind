@@ -1,3 +1,22 @@
 {
-  "app": { "env": "development" }
+  "app": {
+    "port": 5000,
+    "env": "development"
+  },
+  "rateLimit": {
+    "windowMs": 60000,
+    "max": 100
+  },
+  "rService": {
+    "url": "http://localhost:8000"
+  },
+  "redis": {
+    "url": "rediss://redis:6379"
+  },
+  "database": {
+    "url": "postgresql://postgres:postgres@postgres:5432/qualimind?schema=public"
+  },
+  "security": {
+    "jwtSecret": "thisisdevelopmentenvironment"
+  }
 }
