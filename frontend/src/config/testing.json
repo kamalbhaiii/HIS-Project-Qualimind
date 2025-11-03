@@ -1,0 +1,7 @@
+{
+  "apiBaseUrl": "http://localhost:10000/api",
+  "featureFlags": {
+    "enableUpload": false
+  },
+  "serverTimeout": 10000
+}

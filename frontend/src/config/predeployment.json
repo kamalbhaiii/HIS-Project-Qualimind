@@ -1,0 +1,7 @@
+{
+  "apiBaseUrl": "https://his-project-qualimind.onrender.com/api",
+  "featureFlags": {
+    "enableUpload": true
+  },
+  "serverTimeout": 30000
+}
