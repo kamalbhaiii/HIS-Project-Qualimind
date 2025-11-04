@@ -1,0 +1,26 @@
+# prevent host deps / build junk from being copied
+node_modules
+.pnpm
+.pnpm-store
+npm-debug.log*
+yarn-error.log*
+dist
+build
+
+# vcs / docker
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+
+# env & misc
+.env
+.env.*
+*.local.*
+
+# Prisma: keep schema & migrations, ignore generated client
+# (Adjust if your folder is `.prisma` instead of `prisma`)
+.prisma/
+!prisma/
+!prisma/schema.prisma
+!prisma/migrations/**

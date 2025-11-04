@@ -76,22 +76,23 @@ services:
     profiles: ["backend"]
 
   # ---------- Frontend (React + Vite) ----------
-  # frontend:
-  #   container_name: qm-frontend-testing
-  #   build:
-  #     context: ./apps/frontend
-  #     target: dev
-  #   command: ["pnpm", "dev", "--host", "0.0.0.0"]
-  #   environment:
-  #     NODE_ENV: testing
-  #     APP_ENV: testing
-  #   ports:
-  #     - "5173:5173"
-  #   volumes:
-  #     - ./apps/frontend:/app
-  #     - /app/node_modules
-  #   networks: [qm-net]
-  #   profiles: ["frontend"]
+  frontend:
+    container_name: qm-frontend-predeployment
+    build:
+      context: ./frontend
+      target: dev
+      args:
+        MODE: predeploy
+    environment:
+      NODE_ENV: predeploy
+      APP_ENV: predeploy
+    ports:
+      - "5173:80"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
 
   # ---------- R Engine (plumber) ----------
   # r-engine:

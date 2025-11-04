@@ -73,25 +73,26 @@ services:
       redis:
         condition: service_healthy
     networks: [qm-net]
-    profiles: ["backend"]
+    profiles: ["infra", "backend", "frontend", "r"]
 
-  # ---------- Frontend (React + Vite) ----------
-  # frontend:
-  #   container_name: qm-frontend-dev
-  #   build:
-  #     context: ./apps/frontend
-  #     target: dev
-  #   command: ["pnpm", "dev", "--host", "0.0.0.0"]
-  #   environment:
-  #     NODE_ENV: development
-  #     APP_ENV: development
-  #   ports:
-  #     - "5173:5173"
-  #   volumes:
-  #     - ./apps/frontend:/app
-  #     - /app/node_modules
-  #   networks: [qm-net]
-  #   profiles: ["frontend"]
+#  ---------- Frontend (React + Vite) ----------
+  frontend:
+    container_name: qm-frontend-dev
+    build:
+      context: ./frontend
+      target: dev
+      args:
+        MODE: dev
+    environment:
+      NODE_ENV: development
+      APP_ENV: development
+    ports:
+      - "5173:80"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
 
   # ---------- R Engine (plumber) ----------
   # r-engine:
