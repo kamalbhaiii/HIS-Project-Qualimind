@@ -1,6 +1,6 @@
 import dev from '../config/development.json';
 import test from '../config/testing.json';
-import predep from '../config/predeployment.json';
+import predeploy from '../config/predeploy.json';
 import deployment from '../config/deployment.json';
 
 type AppConfig = typeof dev;
@@ -8,7 +8,7 @@ type AppConfig = typeof dev;
 const byMode: Record<string, AppConfig> = {
   development: dev,
   testing: test,
-  predeployment: predep,
+  predeploy: predeploy,
   deployment: deployment
 };
 

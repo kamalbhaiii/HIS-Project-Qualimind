@@ -1,5 +1,5 @@
 {
-  "apiBaseUrl": "http://server/api",
+  "apiBaseUrl": "http://localhost:8000/api",
   "featureFlags": {
     "enableUpload": true
   },

@@ -10,8 +10,8 @@ FROM base AS dev
 WORKDIR /app
 # nodemon + ts-node + tsconfig-paths are expected in dev deps
 COPY . .
-EXPOSE 5000
-CMD ["pnpm", "dev"]
+ARG MODE
+CMD ["pnpm", ${MODE}]
 
 # ---------- Build ----------
 FROM base AS build
@@ -26,5 +26,5 @@ RUN corepack enable
 COPY --from=build /app/dist ./dist
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --prod --frozen-lockfile
-EXPOSE 5000
-CMD ["npm", "run", "dev"]
+ARG MODE
+CMD ["npm", "run", ${MODE}]

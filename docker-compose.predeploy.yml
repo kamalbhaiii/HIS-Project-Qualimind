@@ -11,13 +11,15 @@ services:
     container_name: qm-server-predeployment
     build:
       context: ./server
-      target: dev              
+      target: dev      
+      args:
+        MODE: predeploy        
     command: ["pnpm", "predeploy:prepare"]   
     environment:
       NODE_ENV: predeploy
       APP_ENV: predeploy
     ports:
-      - "8080:8080"
+      - "8000:8000"
     volumes:
       - ./server:/app           
       - /app/node_modules      

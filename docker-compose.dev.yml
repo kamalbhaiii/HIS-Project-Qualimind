@@ -57,7 +57,9 @@ services:
     container_name: qm-server-dev
     build:
       context: ./server
-      target: dev               
+      target: dev
+      args:
+        MODE: dev               
     command: ["pnpm", "dev:prepare"]   
     environment:
       NODE_ENV: development

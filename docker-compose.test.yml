@@ -1,6 +1,6 @@
 version: "3.9"
 
-name: qualimind-testing
+name: qualimind-test
 
 x-healthcheck-postgres: &healthcheck-postgres
   test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-qualimind-testing}"]
@@ -57,7 +57,9 @@ services:
     container_name: qm-server-testing
     build:
       context: ./server
-      target: dev              
+      target: dev
+      args:
+        MODE: test              
     command: ["pnpm", "testing:prepare"]   
     environment:
       NODE_ENV: testing
@@ -65,8 +67,8 @@ services:
     ports:
       - "10000:10000"
     volumes:
-      - ./server:/app           # live code sync
-      - /app/node_modules       # keep node_modules inside container
+      - ./server:/app           
+      - /app/node_modules       
     depends_on:
       postgres:
         condition: service_healthy
