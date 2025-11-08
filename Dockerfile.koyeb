@@ -6,8 +6,6 @@ WORKDIR /app
 COPY . .
 
 # default compose filename is docker-compose.yml; point to yours instead
-RUN apk add --no-cache git python3 make g++ libc6-compat \
- && corepack enable && corepack prepare pnpm@9.13.0 --activate
 ENV COMPOSE_FILE=docker-compose.predeploy.yml
 ENV COMPOSE_PROFILES=backend
 
