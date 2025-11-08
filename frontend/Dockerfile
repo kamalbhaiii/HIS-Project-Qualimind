@@ -3,7 +3,8 @@
 # --------------------------------------------------
 FROM node:20-alpine AS build
 WORKDIR /app
-RUN corepack enable
+RUN apk add --no-cache git python3 make g++ libc6-compat \
+ && corepack enable && corepack prepare pnpm@9.13.0 --activate
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install
 COPY . .
