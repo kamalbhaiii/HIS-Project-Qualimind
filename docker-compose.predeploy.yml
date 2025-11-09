@@ -83,7 +83,7 @@ services:
       NODE_ENV: predeploy
       APP_ENV: predeploy
     ports:
-      - "3000:80"
+      - "80:80"
     volumes:
       - ./frontend:/app
       - /app/node_modules
