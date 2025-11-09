@@ -1,5 +1,5 @@
 {
-  "apiBaseUrl": "http://3.72.255.169:5000",
+  "apiBaseUrl": "http://3.122.118.242:5000",
   "featureFlags": {},
   "serverTimeout": 30000
 }
