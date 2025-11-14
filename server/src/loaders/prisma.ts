@@ -1,4 +1,4 @@
-import {PrismaClient} from '@prisma/client';
+import {PrismaClient} from '../../prisma/.prisma/client';
 import cfg from '@config/index';
 
 // Pass DB URL from JSON directly at runtime (no env file needed)

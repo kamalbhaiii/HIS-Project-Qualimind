@@ -2,56 +2,10 @@ version: "3.9"
 
 name: qualimind-dev
 
-x-healthcheck-postgres: &healthcheck-postgres
-  test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-qualimind-dev}"]
-  interval: 5s
-  timeout: 3s
-  retries: 20
-
-x-healthcheck-redis: &healthcheck-redis
-  test: ["CMD", "redis-cli", "ping"]
-  interval: 5s
-  timeout: 3s
-  retries: 20
-
 networks:
   qm-net:
 
-volumes:
-  pgdata:
-  redisdata:
-
 services:
-  # ---------- Infra ----------
-  postgres:
-    image: postgres:15
-    container_name: qm-postgres-dev
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-qualimind-dev}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck: *healthcheck-postgres
-    networks: [qm-net]
-    profiles: ["infra", "backend", "frontend", "r"]
-
-  redis:
-    image: redis:7
-    container_name: qm-redis-dev
-    restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-    healthcheck: *healthcheck-redis
-    networks: [qm-net]
-    profiles: ["infra", "backend", "frontend", "r"]
-
   # ---------- Server (Express + TS) ----------
   server:
     container_name: qm-server-dev
@@ -60,7 +14,7 @@ services:
       target: dev
       args:
         MODE: dev               
-    command: ["pnpm", "dev:prepare"]   
+    command: ["pnpm", "prepare:dev"]   
     environment:
       NODE_ENV: development
       APP_ENV: development
@@ -69,13 +23,8 @@ services:
     volumes:
       - ./server:/app          
       - /app/node_modules     
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     networks: [qm-net]
-    profiles: ["infra", "backend", "frontend", "r"]
+    profiles: ["backend", "frontend", "r"]
 
 #  ---------- Frontend (React + Vite) ----------
   frontend:
@@ -93,8 +42,10 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    depends_on:
+      - server
     networks: [qm-net]
-    profiles: ["infra", "backend", "frontend", "r"]
+    profiles: ["backend", "frontend", "r"]
 
   # ---------- R Engine (plumber) ----------
   # r-engine:

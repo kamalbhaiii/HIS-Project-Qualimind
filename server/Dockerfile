@@ -12,7 +12,7 @@ WORKDIR /app
 # nodemon + ts-node + tsconfig-paths are expected in dev deps
 COPY . .
 ARG MODE
-CMD ["pnpm", ${MODE}]
+CMD ["pnpm", "prepare:${MODE}"]
 
 # ---------- Build ----------
 FROM base AS build
@@ -28,4 +28,4 @@ COPY --from=build /app/dist ./dist
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --prod --frozen-lockfile
 ARG MODE
-CMD ["npm", "run", ${MODE}]
+CMD ["pnpm", "start:${MODE}"]

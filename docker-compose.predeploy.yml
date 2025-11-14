@@ -59,7 +59,7 @@ services:
       target: dev      
       args:
         MODE: predeploy        
-    command: ["pnpm", "predeploy:prepare"]   
+    command: ["pnpm", "perpare:predeploy"]   
     environment:
       NODE_ENV: predeploy
       APP_ENV: predeploy

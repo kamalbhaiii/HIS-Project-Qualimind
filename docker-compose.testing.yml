@@ -60,7 +60,7 @@ services:
       target: dev
       args:
         MODE: test              
-    command: ["pnpm", "testing:prepare"]   
+    command: ["pnpm", "prepare:testing"]   
     environment:
       NODE_ENV: testing
       APP_ENV: testing
