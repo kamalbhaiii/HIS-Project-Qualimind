@@ -13,19 +13,3 @@ WORKDIR /app
 COPY . .
 ARG MODE
 CMD ["pnpm", "prepare:${MODE}"]
-
-# ---------- Build ----------
-FROM base AS build
-WORKDIR /app
-COPY . .
-RUN pnpm build
-
-# ---------- Production ----------
-FROM node:20.19.5-alpine AS prod
-WORKDIR /app
-RUN corepack enable
-COPY --from=build /app/dist ./dist
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --prod --frozen-lockfile
-ARG MODE
-CMD ["pnpm", "start:${MODE}"]
