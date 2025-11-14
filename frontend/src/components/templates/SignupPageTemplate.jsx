@@ -10,6 +10,7 @@ import { EmailIcon, LockIcon } from '../atoms/Icon';
 import LinkText from '../molecules/LinkText';
 import Typography from '../atoms/CustomTypography';
 import PropTypes from 'prop-types';
+import SocialSignInButton from '../molecules/SocialSigninButton';
 
 const SignUpPageTemplate = ({
   onGoogleSignUp,
@@ -167,22 +168,7 @@ const SignUpPageTemplate = ({
           </Typography>
         </Box>
 
-        <Button
-          variant="outlined"
-          fullWidth
-          startIcon={<img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="Google icon" style={{ width: 20, height: 20 }} />}
-          onClick={handleGoogleSignUp}
-          disabled={loading || externalLoading}
-          aria-label="Continue with Google"
-          sx={{
-            textTransform: 'none',
-            fontWeight: 600,
-            py: 1.1,
-            mb: 2,
-          }}
-        >
-          {loading ? 'Loading...' : 'Continue with Google'}
-        </Button>
+          <SocialSignInButton />
 
         <Typography variant="body2" color="textSecondary" sx={{ mb: 1, textAlign: 'center' }}>
           OR
