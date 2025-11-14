@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm start:dev",
+    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:migrate:dev &&  pnpm start:dev",
     "prepare:testing": "cross-env NODE_ENV=testing APP_ENV=testing pnpm prisma:generate:testing && pnpm start:testing",
     "prepare:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy pnpm prisma:generate && pnpm start:predeploy",
     "start:dev": "cross-env NODE_ENV=development APP_ENV=development nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/index.ts\"",
@@ -23,6 +23,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "bullmq": "^5.62.2",
     "config": "^4.1.1",
     "cors": "^2.8.5",
@@ -39,6 +40,8 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@prisma/client": "^6.18.0",
+    "@types/bcryptjs": "^3.0.0",
     "@types/config": "^3.3.5",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
@@ -50,7 +53,6 @@
     "@types/swagger-ui-express": "^4.1.8",
     "nodemon": "^3.1.10",
     "prisma": "^6.18.0",
-    "@prisma/client": "^6.18.0",
     "supertest": "^7.1.4",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
