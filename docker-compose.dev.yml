@@ -55,7 +55,7 @@ services:
     environment:
       R_ENVIRON_USER: /root/.Renviron
     ports:
-      - "8000:8000"
+      - "5001:8000"
     volumes:
       - ./r-cleaner:/app
       - ./r-cleaner/data:/app/data

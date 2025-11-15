@@ -98,17 +98,6 @@ services:
 
   
 # ---------- R Engine (plumber) ----------
-  # r-engine:
-  #   container_name: qm-r
-  #   build:
-  #     context: ./apps/r-engine
-  #     dockerfile: Dockerfile
-  #   environment:
-  #     R_ENVIRON_USER: /home/ruser/.Renviron
-  #   ports:
-  #     - "8000:8000"
-  #   networks: [qm-net]
-  #   profiles: ["r"]
   r-cleaner:
     container_name: qm-r-cleaner-testing
     build:
