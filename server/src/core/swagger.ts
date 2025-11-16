@@ -3,6 +3,7 @@ import swaggerUi from 'swagger-ui-express';
 import { Express } from 'express';
 import { authPaths } from '../docs/auth.docs';
 import {healthPaths} from '../docs/health.docs';
+import {datasetPaths} from '../docs/dataset.docs';
 
 const baseSpec: any = {
   openapi: '3.0.3',
@@ -20,6 +21,7 @@ baseSpec.paths = {
   ...baseSpec.paths,
   ...authPaths,
   ...healthPaths,
+  ...datasetPaths
 };
 
 baseSpec.components.schemas = {

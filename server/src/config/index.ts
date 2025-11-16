@@ -18,7 +18,8 @@ const Schema = z.object({
     clientId: z.string().min(1),
     clientSecret: z.string().min(1),
     redirectUri: z.string().min(1)
-  })
+  }),
+  multer: z.object({ dest: z.string().min(1) })
 });
 
 export type AppConfig = z.infer<typeof Schema>;
@@ -30,7 +31,8 @@ const cfg = Schema.parse({
   rService: config.get('rService'),
   rateLimit: config.get('rateLimit'),
   security: config.get('security'),
-  googleAuth: config.get('googleAuth')
+  googleAuth: config.get('googleAuth'),
+  multer: config.get('multer')
 });
 
 export default cfg;
