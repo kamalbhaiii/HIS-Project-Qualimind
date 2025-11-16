@@ -12,6 +12,7 @@ library(redux)
 library(stringr)
 library(forcats)
 library(tidyr)
+library(DBI)    
 
 # Configuration - will be set via environment variables or defaults
 REDIS_HOST <- Sys.getenv("REDIS_HOST", "redis")
@@ -329,7 +330,7 @@ function() {
   
   list(
     status = "ok",
-    service = "r-cleaner",
+    service = "r-engine",
     time = as.character(Sys.time()),
     redis = redis_status,
     postgres = postgres_status

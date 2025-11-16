@@ -2,10 +2,55 @@ version: "3.9"
 
 name: qualimind-dev
 
+x-healthcheck-postgres: &healthcheck-postgres
+  test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-qualimind-development}"]
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
+x-healthcheck-redis: &healthcheck-redis
+  test: ["CMD", "redis-cli", "ping"]
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
 networks:
   qm-net:
 
+volumes:
+  pgdata:
+  redisdata:
+
 services:
+  postgres:
+    image: postgres:15
+    container_name: qm-postgres-development
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-qualimind-development}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck: *healthcheck-postgres
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
+
+  redis:
+    image: redis:7
+    container_name: qm-redis-development
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck: *healthcheck-redis
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
+
   # ---------- Server (Express + TS) ----------
   server:
     container_name: qm-server-dev
@@ -45,13 +90,13 @@ services:
     depends_on:
       - server
     networks: [qm-net]
-    profiles: ["backend", "frontend", "r"]
+    profiles: ["backend", "frontend", "r", "infra"]
 
 # ---------- R Engine (plumber) ----------
-  r-cleaner:
-    container_name: qm-r-cleaner-dev
+  r-engine:
+    container_name: qm-r-engine-dev
     build:
-      context: ./r-cleaner
+      context: ./r-engine
     environment:
       R_ENVIRON_USER: /root/.Renviron
       REDIS_HOST: redis
@@ -60,11 +105,16 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-qualimind-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-qualimind-development}
     ports:
       - "5001:8000"
     volumes:
-      - ./r-cleaner:/app
-      - ./r-cleaner/data:/app/data
+      - ./r-engine:/app
+      - ./r-engine/data:/app/data
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_started
     networks: [qm-net]
-    profiles: ["infra", "backend", "frontend", "r"]
+    profiles: ["backend", "frontend", "r", "infra"]

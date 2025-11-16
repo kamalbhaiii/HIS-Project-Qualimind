@@ -98,10 +98,10 @@ services:
 
   
 # ---------- R Engine (plumber) ----------
-  r-cleaner:
-    container_name: qm-r-cleaner-testing
+  r-engine:
+    container_name: qm-r-engine-testing
     build:
-      context: ./r-cleaner
+      context: ./r-engine
     environment:
       R_ENVIRON_USER: /root/.Renviron
       REDIS_HOST: redis
@@ -114,8 +114,8 @@ services:
     ports:
       - "10003:8000"
     volumes:
-      - ./r-cleaner:/app
-      - ./r-cleaner/data:/app/data
+      - ./r-engine:/app
+      - ./r-engine/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

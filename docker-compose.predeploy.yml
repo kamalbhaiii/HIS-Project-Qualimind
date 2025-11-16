@@ -94,10 +94,10 @@ services:
     profiles: ["infra", "backend", "frontend", "r"]
 
 # ---------- R Engine (plumber) ----------
-  r-cleaner:
-    container_name: qm-r-cleaner-predeployment
+  r-engine:
+    container_name: qm-r-engine-predeployment
     build:
-      context: ./r-cleaner
+      context: ./r-engine
     environment:
       R_ENVIRON_USER: /root/.Renviron
       REDIS_HOST: redis
@@ -110,8 +110,8 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - ./r-cleaner:/app
-      - ./r-cleaner/data:/app/data
+      - ./r-engine:/app
+      - ./r-engine/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
