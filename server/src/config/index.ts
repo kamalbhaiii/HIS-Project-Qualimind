@@ -1,5 +1,6 @@
 import config from 'config';
-import { z } from 'zod';
+import { g } from 'vitest/dist/chunks/suite.d.BJWk38HB';
+import { jwt, z } from 'zod';
 
 const Schema = z.object({
   app: z.object({
@@ -12,7 +13,12 @@ const Schema = z.object({
   redis: z.object({ url: z.string() }),
   rService: z.object({ url: z.string() }),
   rateLimit: z.object({ windowMs: z.number(), max: z.number() }),
-  security: z.object({ jwtSecret: z.string().min(10) })
+  security: z.object({ jwtSecret: z.string().min(10), jwtExpiresIn: z.string() }),
+  googleAuth: z.object({
+    clientId: z.string().min(1),
+    clientSecret: z.string().min(1),
+    redirectUri: z.string().min(1)
+  })
 });
 
 export type AppConfig = z.infer<typeof Schema>;
@@ -24,6 +30,7 @@ const cfg = Schema.parse({
   rService: config.get('rService'),
   rateLimit: config.get('rateLimit'),
   security: config.get('security'),
+  googleAuth: config.get('googleAuth')
 });
 
 export default cfg;

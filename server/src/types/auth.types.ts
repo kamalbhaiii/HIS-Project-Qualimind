@@ -15,3 +15,9 @@ export interface AuthUser {
   email: string;
   name?: string | null;
 }
+
+export interface GoogleUserProfile {
+  googleId: string;
+  email: string;
+  name?: string | null;
+}

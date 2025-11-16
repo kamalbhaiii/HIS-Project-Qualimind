@@ -41,3 +41,25 @@ export async function signupLocal(data: SignupRequestDTO): Promise<SignupRespons
     throw err;
   }
 }
+
+export async function loginLocal(email: string, password: string): Promise<SignupResponseDTO> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!user || !user.passwordHash) {
+    // either no such user or user is Google-only
+    throw new Error('INVALID_CREDENTIALS');
+  }
+
+  const isValid = await bcrypt.compare(password, user.passwordHash);
+  if (!isValid) {
+    throw new Error('INVALID_CREDENTIALS');
+  }
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+  };
+}

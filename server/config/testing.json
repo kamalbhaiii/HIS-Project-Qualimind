@@ -17,6 +17,12 @@
     "url": "postgresql://postgres:postgres@postgres:5432/qualimind-testing?schema=public"
   },
   "security": {
-    "jwtSecret": "thisistestingenvironment"
+    "jwtSecret": "thisistestingenvironment",
+    "jwtExpiresIn": "1h"
+  },
+   "googleAuth": { 
+    "clientId": "356828934230-1g6suea2dvafs7dvla6jf6ar49abq48p.apps.googleusercontent.com",
+    "clientSecret": "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",
+    "redirectUri": "http://localhost:10000/api/auth/google/callback"
   }
 }

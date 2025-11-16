@@ -143,4 +143,155 @@ export const authPaths = {
       ],
     },
   },
+  '/api/auth/google/url': {
+    get: {
+      summary: 'Get Google OAuth sign-in URL',
+      description:
+        'Returns the Google OAuth2 authorization URL. The frontend should redirect the user to this URL to start Google sign-in.',
+      tags: ['Auth'],
+      responses: {
+        200: {
+          description: 'Google OAuth URL generated successfully.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  url: {
+                    type: 'string',
+                    example: 'https://accounts.google.com/o/oauth2/v2/auth?...',
+                  },
+                },
+              },
+            },
+          },
+        },
+        500: {
+          description: 'Internal Server Error – failed to generate URL.',
+        },
+      },
+    },
+  },
+  '/api/auth/google/callback': {
+    get: {
+      summary: 'Google OAuth callback handler',
+      description:
+        'Exchanges the Google authorization code for tokens, fetches user profile, and creates or updates the user in the database.',
+      tags: ['Auth'],
+      parameters: [
+        {
+          name: 'code',
+          in: 'query',
+          required: true,
+          description: 'Authorization code returned by Google after user consent.',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Google user authenticated successfully.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  user: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string', example: 'clzv1a9s8000stuvwxyz12345' },
+                      email: { type: 'string', format: 'email', example: 'user@example.com' },
+                      name: { type: 'string', nullable: true, example: 'Jane Doe' },
+                    },
+                  },
+                  // token: { type: 'string', example: 'JWT_TOKEN_HERE' } // for later
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Missing or invalid "code" query parameter.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  message: { type: 'string', example: 'Missing "code" query parameter' },
+                },
+              },
+            },
+          },
+        },
+        500: {
+          description: 'Internal Server Error – failed to handle Google sign-in.',
+        },
+      },
+    },
+  },
+    '/api/auth/login': {
+    post: {
+      summary: 'Log in with email and password',
+      description: 'Authenticates an existing user using email and password and returns a JWT.',
+      tags: ['Auth'],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['email', 'password'],
+              properties: {
+                email: {
+                  type: 'string',
+                  format: 'email',
+                  example: 'user@example.com',
+                },
+                password: {
+                  type: 'string',
+                  example: 'Str0ngP@ssw0rd!',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Login successful.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  user: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      email: { type: 'string', format: 'email' },
+                      name: { type: 'string', nullable: true },
+                    },
+                  },
+                  token: {
+                    type: 'string',
+                    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Validation error.',
+        },
+        401: {
+          description: 'Invalid email or password.',
+        },
+        500: {
+          description: 'Internal server error.',
+        },
+      },
+    },
+  },
 };

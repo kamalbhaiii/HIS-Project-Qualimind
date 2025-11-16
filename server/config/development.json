@@ -11,12 +11,18 @@
     "url": "http://r-engine:8000"
   },
   "redis": {
-    "url": "redis://redis:6379"
+    "url": "rediss://default:AXocAAIncDJlNmQ5YWQ4ZTEzMjY0MzFmOTU1YjFkY2Q1NTM0Y2Q0ZnAyMzEyNjA@many-manatee-31260.upstash.io:6379"
   },
   "database": {
-    "url": "postgresql://postgres:postgres@postgres:5432/qualimind-development?schema=public"
+    "url": "postgresql://neondb_owner:npg_UYT08XKvCGLF@ep-dry-river-ag2v6cgd-pooler.c-2.eu-central-1.aws.neon.tech/qualimind-development?sslmode=require&channel_binding=require"
   },
   "security": {
-    "jwtSecret": "thisisdevelopmentenvironment"
+    "jwtSecret": "thisisdevelopmentenvironment",
+    "jwtExpiresIn": "1h"
+  },
+  "googleAuth": {
+    "clientId": "356828934230-1eg49caaspcqof3olvapop4n1hgcaktq.apps.googleusercontent.com",
+    "clientSecret": "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",
+    "redirectUri": "http://localhost:5000/api/auth/google/callback"
   }
 }

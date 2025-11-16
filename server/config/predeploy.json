@@ -17,6 +17,12 @@
     "url": "postgresql://postgres:postgres@postgres:5432/qualimind-predeploy?schema=public"
   },
   "security": {
-    "jwtSecret": "thisispredeploymentenvironment"
+    "jwtSecret": "thisispredeploymentenvironment",
+    "jwtExpiresIn": "1h"
+  },
+   "googleAuth": {
+    "clientId": "YOUR_GOOGLE_CLIENT_ID",
+    "clientSecret": "YOUR_GOOGLE_CLIENT_SECRET",
+    "redirectUri": "http://server:8000/api/auth/google/callback"
   }
 }
