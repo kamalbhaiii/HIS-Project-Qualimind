@@ -5,7 +5,7 @@ const router = Router();
 
 /**
  * @openapi
- * /health:
+ * /api/health:
  *   get:
  *     summary: Health check
  *     tags:

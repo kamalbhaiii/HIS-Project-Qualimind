@@ -1,16 +1,31 @@
-import swaggerJsdoc from 'swagger-jsdoc';
-import { Express } from 'express';
+// src/core/swagger.ts (example)
 import swaggerUi from 'swagger-ui-express';
+import { Express } from 'express';
+import { authPaths } from '../docs/auth.docs';
+import {healthPaths} from '../docs/health.docs';
+
+const baseSpec: any = {
+  openapi: '3.0.3',
+  info: {
+    title: 'QualiMind API',
+    version: '1.0.0',
+  },
+  paths: {},
+  components: {
+    schemas: {},
+  },
+};
+
+baseSpec.paths = {
+  ...baseSpec.paths,
+  ...authPaths,
+  ...healthPaths,
+};
+
+baseSpec.components.schemas = {
+  ...baseSpec.components.schemas,
+};
 
 export function setupSwagger(app: Express) {
-  const options: swaggerJsdoc.Options = {
-    definition: {
-      openapi: '3.0.0',
-      info: { title: 'QualiMind API', version: '1.0.0' },
-    },
-    apis: ['src/routes/**/*.ts'], // scans JSDoc in routes
-  };
-
-  const spec = swaggerJsdoc(options);
-  app.use('/docs', swaggerUi.serve, swaggerUi.setup(spec));
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(baseSpec));
 }

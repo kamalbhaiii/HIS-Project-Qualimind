@@ -11,9 +11,12 @@ if (!dbUrl) {
 
 const env = { ...process.env, DATABASE_URL: dbUrl };
 
-// Use npx cross-platform
-const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+// Just call `npx` and let the shell resolve .cmd on Windows
 const args = ['prisma', ...process.argv.slice(2)];
+const res = spawnSync('npx', args, {
+  stdio: 'inherit',
+  env,
+  shell: true,          // <-- important
+});
 
-const res = spawnSync(cmd, args, { stdio: 'inherit', env });
 process.exit(res.status ?? 0);

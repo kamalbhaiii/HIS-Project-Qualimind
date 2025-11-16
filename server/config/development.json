@@ -8,13 +8,13 @@
     "max": 100
   },
   "rService": {
-    "url": "http://localhost:8000"
+    "url": "http://r-engine:8000"
   },
   "redis": {
     "url": "redis://redis:6379"
   },
   "database": {
-    "url": "postgresql://postgres:postgres@postgres:5432/qualimind-dev?schema=public"
+    "url": "postgresql://postgres:postgres@postgres:5432/qualimind-development?schema=public"
   },
   "security": {
     "jwtSecret": "thisisdevelopmentenvironment"
