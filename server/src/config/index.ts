@@ -10,7 +10,7 @@ const Schema = z.object({
   database: z.object({
     url: z.string().startsWith('postgresql://')
   }),
-  redis: z.object({ url: z.string() }),
+  redis: z.object({ url: z.string(), port: z.number(), host: z.string(), password: z.string(), username: z.string() }),
   rService: z.object({ url: z.string() }),
   rateLimit: z.object({ windowMs: z.number(), max: z.number() }),
   security: z.object({ jwtSecret: z.string().min(10), jwtExpiresIn: z.string() }),

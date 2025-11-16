@@ -1,6 +1,8 @@
 import { Queue } from 'bullmq';
-import cfg from '@config/index';
-import { redis } from './redis';
+import { redis } from '@loaders/redis';
 
-export const exampleQueue = new Queue('example', { connection: redis.options as any });
-// Add processors later under /jobs
+const connection = redis; // bullmq accepts ioredis instance
+
+export const preprocessQueue = new Queue('preprocess', {
+  connection,
+});

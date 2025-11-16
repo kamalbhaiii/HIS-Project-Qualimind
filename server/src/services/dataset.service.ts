@@ -1,6 +1,7 @@
 import { prisma } from '@loaders/prisma';
 import type { DatasetUploadDTO, DatasetResponseDTO } from '../types/dataset.types';
 import { JobStatus } from '../../prisma/.prisma/client';
+import { preprocessQueue } from '@loaders/queue';
 
 interface CreateDatasetParams {
   ownerId: string;
@@ -34,6 +35,13 @@ export async function createDatasetWithJob(
     include: {
       jobs: true,
     },
+  });
+
+  const job = dataset.jobs[0];
+
+  await preprocessQueue.add('preprocess-dataset', {
+    processingJobId: job.id,
+    datasetId: dataset.id,
   });
 
   return {

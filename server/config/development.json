@@ -11,7 +11,11 @@
     "url": "http://r-engine:8000"
   },
   "redis": {
-    "url": "rediss://default:AXocAAIncDJlNmQ5YWQ4ZTEzMjY0MzFmOTU1YjFkY2Q1NTM0Y2Q0ZnAyMzEyNjA@many-manatee-31260.upstash.io:6379"
+    "url": "rediss://default:AXocAAIncDJlNmQ5YWQ4ZTEzMjY0MzFmOTU1YjFkY2Q1NTM0Y2Q0ZnAyMzEyNjA@many-manatee-31260.upstash.io:6379",
+    "port": 6379,
+    "host": "many-manatee-31260.upstash.io",
+    "password": "AXocAAIncDJlNmQ5YWQ4ZTEzMjY0MzFmOTU1YjFkY2Q1NTM0Y2Q0ZnAyMzEyNjA",
+    "username": "default"
   },
   "database": {
     "url": "postgresql://neondb_owner:npg_UYT08XKvCGLF@ep-dry-river-ag2v6cgd-pooler.c-2.eu-central-1.aws.neon.tech/qualimind-development?sslmode=require&channel_binding=require"

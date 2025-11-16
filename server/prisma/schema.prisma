@@ -29,7 +29,7 @@ model Dataset {
   originalName String
   mimeType     String
   sizeBytes    Int
-  storagePath  String          
+  storagePath  String
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
@@ -42,11 +42,10 @@ model ProcessingJob {
   dataset      Dataset    @relation(fields: [datasetId], references: [id])
   status       JobStatus  @default(PENDING)
   errorMessage String?
+  resultKey    String?    // e.g. Redis key storing processed output
+  createdAt    DateTime   @default(now())
   startedAt    DateTime?
   completedAt  DateTime?
-  createdAt    DateTime   @default(now())
-
-  resultKey    String?    // e.g. Redis key or S3 path
 }
 
 enum JobStatus {
