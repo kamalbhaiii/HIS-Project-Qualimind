@@ -119,3 +119,23 @@ services:
         condition: service_healthy
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
+
+  worker:
+    container_name: qm-worker-predeployment
+    build:
+      context: ./server
+      target: dev
+    command: ["pnpm", "worker:predeploy"]
+    environment:
+      NODE_ENV: predeploy
+      APP_ENV: predeploy
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    networks: [qm-net]
+    profiles: ["backend", "frontend", "r", "infra"]
