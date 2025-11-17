@@ -24,7 +24,7 @@ volumes:
 services:
   postgres:
     image: postgres:15
-    container_name: qm-postgres-development
+    container_name: qm-postgres-dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -40,7 +40,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: qm-redis-development
+    container_name: qm-redis-dev
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
@@ -71,7 +71,7 @@ services:
     networks: [qm-net]
     profiles: ["backend", "frontend", "r"]
 
-#  ---------- Frontend (React + Vite) ----------
+ #  ---------- Frontend (React + Vite) ----------
   frontend:
     container_name: qm-frontend-dev
     build:
@@ -92,7 +92,7 @@ services:
     networks: [qm-net]
     profiles: ["backend", "frontend", "r", "infra"]
 
-# ---------- R Engine (plumber) ----------
+ # ---------- R Engine (plumber) ----------
   r-engine:
     container_name: qm-r-engine-dev
     build:
@@ -116,5 +116,25 @@ services:
         condition: service_started
       postgres:
         condition: service_started
+    networks: [qm-net]
+    profiles: ["backend", "frontend", "r", "infra"]
+
+  worker:
+    container_name: qm-worker-dev
+    build:
+      context: ./server
+      target: dev
+    command: ["pnpm", "worker:dev"]
+    environment:
+      NODE_ENV: development
+      APP_ENV: development
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./server:/app
+      - /app/node_modules
     networks: [qm-net]
     profiles: ["backend", "frontend", "r", "infra"]

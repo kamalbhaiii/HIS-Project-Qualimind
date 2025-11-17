@@ -71,12 +71,7 @@ const worker = new Worker<PreprocessJobData>(
     }
   },
   {
-    connection: {
-        host: cfg.redis.url,
-        port: cfg.redis.port,
-        password: cfg.redis.password,
-        username: cfg.redis.username,
-    },
+    connection: cfg.redis,
   }
 );
 

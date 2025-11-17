@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:migrate:dev && pnpm worker:dev && pnpm start:dev",
+    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:migrate:dev && pnpm start:dev",
     "prepare:testing": "cross-env NODE_ENV=testing APP_ENV=testing pnpm prisma:generate:testing && pnpm prisma:migrate:testing && pnpm start:testing",
     "prepare:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy pnpm prisma:generate:predeploy && pnpm prisma:migrate:predeploy && pnpm start:predeploy",
     "start:dev": "cross-env NODE_ENV=development APP_ENV=development nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/index.ts\"",
