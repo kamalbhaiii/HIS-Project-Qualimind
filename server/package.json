@@ -12,6 +12,7 @@
     "start:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/index.ts\"",
     "start:prod": "cross-env NODE_ENV=production APP_ENV=production node dist/src/index.js",
     "worker:dev": "cross-env NODE_ENV=development APP_ENV=development nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/workers/preprocess.worker.ts\"",
+    "worker:testing": "cross-env NODE_ENV=testing APP_ENV=testing nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/workers/preprocess.worker.ts\"",
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "lint": "eslint . --ext .ts",
     "prisma:generate:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js generate",

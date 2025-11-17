@@ -123,3 +123,23 @@ services:
         condition: service_healthy
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
+
+  worker:
+    container_name: qm-worker-testing
+    build:
+      context: ./server
+      target: dev
+    command: ["pnpm", "worker:testing"]
+    environment:
+      NODE_ENV: testing
+      APP_ENV: testing
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    networks: [qm-net]
+    profiles: ["backend", "frontend", "r", "infra"]
