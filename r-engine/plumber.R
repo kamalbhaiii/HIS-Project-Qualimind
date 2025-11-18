@@ -373,6 +373,95 @@ function(req, res, file) {
   list(jobId = id, status = "uploaded", message = "File uploaded successfully")
 }
 
+#* Process job - accepts job object with data and returns processed JSON
+#* @post /process
+#* @serializer json
+function(req, res) {
+  # Parse request body
+  body <- tryCatch({
+    jsonlite::fromJSON(req$postBody)
+  }, error = function(e) {
+    res$status <- 400
+    return(list(error = "Invalid JSON in request body"))
+  })
+  
+  # Validate job structure
+  if (is.null(body$data) || (!is.data.frame(body$data) && !is.list(body$data))) {
+    # Try to convert data to dataframe if it's a list/array
+    if (is.list(body$data) && length(body$data) > 0) {
+      body$data <- tryCatch({
+        jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
+      }, error = function(e) {
+        res$status <- 400
+        return(list(error = "Data must be a JSON array of objects"))
+      })
+    } else {
+      res$status <- 400
+      return(list(error = "Job must contain 'data' field with array of objects"))
+    }
+  }
+  
+  # Convert to dataframe if needed
+  df <- if (is.data.frame(body$data)) {
+    body$data
+  } else {
+    tryCatch({
+      jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
+    }, error = function(e) {
+      res$status <- 400
+      return(list(error = "Failed to convert data to dataframe"))
+    })
+  }
+  
+  if (is.null(df) || nrow(df) == 0) {
+    res$status <- 400
+    return(list(error = "Dataset is empty"))
+  }
+  
+  # Generate job ID if not provided
+  job_id <- body$jobId %||% UUIDgenerate()
+  
+  # Perform comprehensive preprocessing
+  result <- tryCatch({
+    preprocess_categorical_data(df)
+  }, error = function(e) {
+    res$status <- 500
+    return(list(error = paste("Preprocessing failed:", e$message)))
+  })
+  
+  if (is.null(result)) {
+    return(list(error = "Preprocessing returned NULL"))
+  }
+  
+  processed_df <- result$data
+  metadata <- result$metadata
+  metadata$jobId <- job_id
+  metadata$filename <- body$filename %||% "inline_data"
+  metadata$source <- "api_request"
+  
+  # Store in Redis and PostgreSQL
+  redis_success <- store_in_redis(job_id, processed_df, metadata)
+  postgres_success <- store_in_postgres(job_id, processed_df, metadata)
+  
+  # Convert to JSON-friendly format
+  cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
+  
+  # Return JSON response
+  list(
+    jobId = job_id,
+    status = "processed",
+    rows = nrow(processed_df),
+    originalRows = metadata$original_rows,
+    columns = ncol(processed_df),
+    storage = list(
+      redis = ifelse(redis_success, "success", "failed"),
+      postgres = ifelse(postgres_success, "success", "failed")
+    ),
+    metadata = metadata,
+    data = cleaned_data
+  )
+}
+
 #* Clean and preprocess uploaded dataset
 #* @param jobId:string The job ID returned from /upload
 #* @post /clean
