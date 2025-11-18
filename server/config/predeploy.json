@@ -21,8 +21,8 @@
     "jwtExpiresIn": "1h"
   },
    "googleAuth": {
-    "clientId": "YOUR_GOOGLE_CLIENT_ID",
-    "clientSecret": "YOUR_GOOGLE_CLIENT_SECRET",
+    "clientId": "356828934230-1eg49caaspcqof3olvapop4n1hgcaktq.apps.googleusercontent.com",
+    "clientSecret": "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",
     "redirectUri": "http://server:8000/api/auth/google/callback"
   }
 }
