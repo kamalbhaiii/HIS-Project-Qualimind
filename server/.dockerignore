@@ -20,7 +20,6 @@ docker-compose.yml
 
 # Prisma: keep schema & migrations, ignore generated client
 # (Adjust if your folder is `.prisma` instead of `prisma`)
-.prisma/
-!prisma/
-!prisma/schema.prisma
-!prisma/migrations/**
+.prisma
+migrations
+raw

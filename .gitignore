@@ -2,8 +2,7 @@
 node_modules
 dist
 .prisma
-migrations/
-server/raw/uploads 
+migrations
 raw
 
 
