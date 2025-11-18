@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/protectedRoutes';
-import { getJobStatusController } from './controller.job';
+import { getJobStatusController, getJobResultController, exportJobResultController } from './controller.job';
 
 const router = Router();
 
+// GET /api/jobs/:id/status
 router.get('/:id/status', authMiddleware, getJobStatusController);
+
+// GET /api/jobs/:id/result
+router.get('/:id/result', authMiddleware, getJobResultController);
+
+// GET /api/jobs/:id/export?format=csv|json|txt
+router.get('/:id/export', authMiddleware, exportJobResultController);
 
 export const jobRouter = router;

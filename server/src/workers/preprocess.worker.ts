@@ -4,7 +4,7 @@ import { redis } from '@loaders/redis';
 import { prisma } from '@loaders/prisma';
 import { JobStatus } from '../../prisma/.prisma/client';
 import { logger } from '@core/logger'; // assuming you have one
-import { saveProcessedResult } from './result-store'; // we’ll define below
+import { saveProcessedResult } from '@core/result-store'; // we’ll define below
 import { mockRProcess } from './r-mock'; // temporary R stub
 
 interface PreprocessJobData {
