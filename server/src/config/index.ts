@@ -11,7 +11,7 @@ const Schema = z.object({
     url: z.string().startsWith('postgresql://')
   }),
   redis: z.object({ url: z.string() }),
-  rService: z.object({ url: z.string() }),
+  rService: z.object({ url: z.string(), processEndpoint: z.string() }),
   rateLimit: z.object({ windowMs: z.number(), max: z.number() }),
   security: z.object({ jwtSecret: z.string().min(10), jwtExpiresIn: z.string() }),
   googleAuth: z.object({

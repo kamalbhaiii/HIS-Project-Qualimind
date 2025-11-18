@@ -3,9 +3,8 @@ import { Worker, Job } from 'bullmq';
 import { redis } from '@loaders/redis';
 import { prisma } from '@loaders/prisma';
 import { JobStatus } from '../../prisma/.prisma/client';
-import { logger } from '@core/logger'; // assuming you have one
-import { saveProcessedResult } from '@core/result-store'; // we’ll define below
-import { mockRProcess } from './r-mock'; // temporary R stub
+import { logger } from '@core/logger';
+import { callRPreprocess, REngineError } from '@core/r-client';
 
 interface PreprocessJobData {
   processingJobId: string;
@@ -19,7 +18,6 @@ const worker = new Worker<PreprocessJobData>(
 
     logger.info(`Starting preprocessing job ${processingJobId} for dataset ${datasetId}`);
 
-    // mark job as RUNNING
     await prisma.processingJob.update({
       where: { id: processingJobId },
       data: {
@@ -29,7 +27,6 @@ const worker = new Worker<PreprocessJobData>(
     });
 
     try {
-      // Load dataset metadata
       const dataset = await prisma.dataset.findUnique({
         where: { id: datasetId },
       });
@@ -38,13 +35,15 @@ const worker = new Worker<PreprocessJobData>(
         throw new Error(`Dataset ${datasetId} not found`);
       }
 
-      // For now, call a mock R function; later this will call the real R API
-      const processed = await mockRProcess(dataset.storagePath);
+      const rResponse = await callRPreprocess({
+        processingJobId,
+        datasetPath: dataset.storagePath,
+        filename: dataset.originalName,
+        mimeType: dataset.mimeType,
+      });
 
-      // Save processed result somewhere (e.g., Redis)
-      const resultKey = await saveProcessedResult(processingJobId, processed);
+      const resultKey = `processed:${processingJobId}`;
 
-      // mark job as SUCCESS
       await prisma.processingJob.update({
         where: { id: processingJobId },
         data: {
@@ -54,7 +53,13 @@ const worker = new Worker<PreprocessJobData>(
         },
       });
 
-      logger.info(`Job ${processingJobId} completed successfully`);
+      logger.info(
+        `Job ${processingJobId} completed successfully via R engine`,
+        {
+          rows: rResponse.rows,
+          originalRows: rResponse.originalRows,
+        }
+      );
     } catch (err: any) {
       logger.error(`Job ${processingJobId} failed`, { err });
 
@@ -67,12 +72,10 @@ const worker = new Worker<PreprocessJobData>(
         },
       });
 
-      throw err; 
+      throw err;
     }
   },
-  {
-    connection: cfg.redis,
-  }
+  { connection: redis }
 );
 
 worker.on('error', (err) => {

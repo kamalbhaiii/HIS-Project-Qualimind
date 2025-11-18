@@ -47,6 +47,7 @@ export async function createDatasetWithJob(
   return {
     id: dataset.id,
     name: dataset.name,
+    jobId: job.id,
     originalName: dataset.originalName,
     mimeType: dataset.mimeType,
     sizeBytes: dataset.sizeBytes,

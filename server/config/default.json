@@ -8,7 +8,8 @@
     "max": 100
   },
   "rService": {
-    "url": "http://localhost:8000"
+    "url": "http://localhost:8000",
+    "processEndpoint": "/process"
   },
   "redis": {
     "url": "redis://redis:6379"

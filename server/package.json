@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:deploy:dev && pnpm start:dev",
+    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:migrate:dev && pnpm start:dev",
     "prepare:testing": "cross-env NODE_ENV=testing APP_ENV=testing pnpm prisma:generate:testing && pnpm prisma:deploy:testing && pnpm start:testing",
     "prepare:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy pnpm prisma:generate:predeploy && pnpm prisma:deploy:predeploy && pnpm start:predeploy",
     "start:dev": "cross-env NODE_ENV=development APP_ENV=development nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/index.ts\"",
@@ -22,9 +22,9 @@
     "prisma:migrate:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate dev",
     "prisma:generate:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js generate",
     "prisma:migrate:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate dev",
-    "prisma:deploy:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js migrate reset --force",
-    "prisma:deploy:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate reset --force",
-    "prisma:deploy:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate reset --force"
+    "prisma:deploy:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js migrate deploy",
+    "prisma:deploy:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate deploy",
+    "prisma:deploy:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate deploy"
   },
   "keywords": [],
   "author": "",
@@ -37,6 +37,7 @@
     "config": "^4.1.1",
     "cors": "^2.8.5",
     "cross-env": "^10.1.0",
+    "csv-parse": "^6.1.0",
     "dotenv-flow": "^4.1.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.0",
@@ -57,6 +58,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/config": "^3.3.5",
     "@types/cors": "^2.8.19",
+    "@types/csv-parse": "^1.2.5",
     "@types/express": "^5.0.5",
     "@types/helmet": "^0.0.48",
     "@types/jsonwebtoken": "^9.0.10",

@@ -5,6 +5,7 @@ export interface DatasetUploadDTO {
 export interface DatasetResponseDTO {
   id: string;
   name: string;
+  jobId: string;
   originalName: string;
   mimeType: string;
   sizeBytes: number;
