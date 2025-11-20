@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   r-cran-plumber \
   r-cran-jsonlite \
   r-cran-readr \
+  r-cran-readxl \
   r-cran-dplyr \
   r-cran-uuid \
   r-cran-rpostgres \
@@ -21,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install additional packages from CRAN if not available as binaries
 RUN R -e "if (!require('recipes', quietly = TRUE)) install.packages('recipes', repos='https://cloud.r-project.org')"
-RUN R -e "if (!require('caret', quietly = TRUE)) install.packages('caret', repos='https://cloud.r-project.org', dependencies=TRUE)"
+RUN R -e "if (!require('janitor', quietly = TRUE)) install.packages('janitor', repos='https://cloud.r-project.org')"
 
 WORKDIR /app
 COPY plumber.R /app/plumber.R
