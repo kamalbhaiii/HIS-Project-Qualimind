@@ -9,7 +9,7 @@
   },
   "rService": {
     "url": "http://localhost:8000",
-    "processEndpoint": "/process"
+    "processEndpoint": "/clean?jobId="
   },
   "redis": {
     "url": "redis://redis:6379"

@@ -1,20 +1,19 @@
 #* @apiTitle R Categorical Data Preprocessing API
-#* @apiDescription Comprehensive categorical data preprocessing pipeline with Redis and PostgreSQL storage
+#* @apiDescription Comprehensive categorical and numerical preprocessing pipeline with Redis and PostgreSQL storage
 
 library(plumber)
 library(jsonlite)
 library(readr)
 library(dplyr)
 library(uuid)
-library(tools)
 library(RPostgres)
 library(redux)
 library(stringr)
-library(forcats)
 library(tidyr)
-library(DBI)    
+library(DBI)
 
-# Configuration - will be set via environment variables or defaults
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
 REDIS_HOST <- Sys.getenv("REDIS_HOST", "redis")
 REDIS_PORT <- as.integer(Sys.getenv("REDIS_PORT", "6379"))
 POSTGRES_HOST <- Sys.getenv("POSTGRES_HOST", "postgres")
@@ -23,23 +22,23 @@ POSTGRES_USER <- Sys.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD <- Sys.getenv("POSTGRES_PASSWORD", "postgres")
 POSTGRES_DB <- Sys.getenv("POSTGRES_DB", "qualimind-testing")
 
-# Simple in-memory job store
-.job_store <- new.env(parent = emptyenv())
+print(paste("Connecting to Redis at", REDIS_HOST, ":", REDIS_PORT))
+print(paste("Connecting to PostgreSQL at", POSTGRES_HOST, ":", POSTGRES_PORT, "DB:", POSTGRES_DB))
 
-# Redis connection function
 get_redis_conn <- function() {
   tryCatch({
-    redux::hiredis(host = REDIS_HOST, port = REDIS_PORT)
+    conn <- redux::hiredis(host = REDIS_HOST, port = REDIS_PORT)
+    print("Redis connection established")
+    conn
   }, error = function(e) {
     warning("Redis connection failed: ", e$message)
-    return(NULL)
+    NULL
   })
 }
 
-# PostgreSQL connection function
 get_postgres_conn <- function() {
   tryCatch({
-    dbConnect(
+    conn <- dbConnect(
       Postgres(),
       host = POSTGRES_HOST,
       port = POSTGRES_PORT,
@@ -47,37 +46,37 @@ get_postgres_conn <- function() {
       password = POSTGRES_PASSWORD,
       dbname = POSTGRES_DB
     )
+    print("PostgreSQL connection established")
+    conn
   }, error = function(e) {
     warning("PostgreSQL connection failed: ", e$message)
-    return(NULL)
+    NULL
   })
 }
 
-# Store processed data in Redis
+
 store_in_redis <- function(job_id, processed_data, metadata) {
   redis_conn <- get_redis_conn()
   if (is.null(redis_conn)) return(FALSE)
-  
   tryCatch({
-    # Store processed data as JSON
     data_json <- jsonlite::toJSON(processed_data, na = "string")
     redis_conn$SET(paste0("processed:", job_id), data_json)
-    redis_conn$SETEX(paste0("processed:", job_id, ":meta"), 86400, jsonlite::toJSON(metadata)) # 24h TTL
+    redis_conn$SETEX(paste0("processed:", job_id, ":meta"), 86400, jsonlite::toJSON(metadata, auto_unbox = TRUE))
     redis_conn$SET(paste0("job:", job_id, ":status"), "completed")
-    return(TRUE)
+    TRUE
   }, error = function(e) {
     warning("Redis storage failed: ", e$message)
-    return(FALSE)
+    FALSE
   })
 }
 
-# Store processed data in PostgreSQL
 store_in_postgres <- function(job_id, processed_data, metadata) {
   pg_conn <- get_postgres_conn()
   if (is.null(pg_conn)) return(FALSE)
-  
+  on.exit({
+    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
+  }, add = TRUE)
   tryCatch({
-    # Create table if it doesn't exist
     dbExecute(pg_conn, "
       CREATE TABLE IF NOT EXISTS processed_datasets (
         job_id VARCHAR(255) PRIMARY KEY,
@@ -91,8 +90,6 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
         processing_stats JSONB
       )
     ")
-    
-    # Create table for processed data (store as JSONB for flexibility)
     dbExecute(pg_conn, "
       CREATE TABLE IF NOT EXISTS processed_data (
         job_id VARCHAR(255),
@@ -101,15 +98,12 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
         PRIMARY KEY (job_id, row_index)
       )
     ")
-    
-    # Insert metadata
     metadata_json <- jsonlite::toJSON(metadata, auto_unbox = TRUE)
     stats_json <- jsonlite::toJSON(list(
       categorical_columns = length(metadata$categorical_columns %||% c()),
       encoded_columns = length(metadata$encoded_columns %||% c()),
       numeric_columns = length(metadata$numeric_columns %||% c())
     ), auto_unbox = TRUE)
-    
     dbExecute(pg_conn, "
       INSERT INTO processed_datasets (job_id, original_filename, original_rows, processed_rows, processed_columns, metadata, processing_stats)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -127,10 +121,7 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
       metadata_json,
       stats_json
     ))
-    
-    # Store processed data rows
     dbExecute(pg_conn, "DELETE FROM processed_data WHERE job_id = $1", params = list(job_id))
-    
     for (i in 1:nrow(processed_data)) {
       row_json <- jsonlite::toJSON(as.list(processed_data[i, ]), auto_unbox = TRUE)
       dbExecute(pg_conn, "
@@ -138,185 +129,326 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
         VALUES ($1, $2, $3)
       ", params = list(job_id, i - 1, row_json))
     }
-    
-    dbDisconnect(pg_conn)
-    return(TRUE)
+    TRUE
   }, error = function(e) {
     warning("PostgreSQL storage failed: ", e$message)
-    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
-    return(FALSE)
+    FALSE
   })
 }
 
-# Comprehensive categorical preprocessing function
 preprocess_categorical_data <- function(df) {
   original_rows <- nrow(df)
   original_cols <- colnames(df)
-  
-  # Step 1: Remove duplicates
-  df <- df %>% distinct()
+  df <- dplyr::distinct(df)
   duplicates_removed <- original_rows - nrow(df)
-  
-  # Step 2: Identify column types
-  categorical_cols <- character()
-  numeric_cols <- character()
-  
+
+  missing_tokens <- c("NULL", "null", "Na", "NA", "N/A", "n/a", "", "?", "NaN", "nan")
+
   for (col in colnames(df)) {
     if (is.character(df[[col]]) || is.factor(df[[col]])) {
-      categorical_cols <- c(categorical_cols, col)
-    } else if (is.numeric(df[[col]])) {
-      numeric_cols <- c(numeric_cols, col)
+      v <- as.character(df[[col]])
+      v <- stringr::str_trim(v)
+      v[v %in% missing_tokens] <- NA
+      df[[col]] <- v
     }
   }
-  
-  # Step 3: Handle missing categorical values
-  for (col in categorical_cols) {
-    # Replace NA with "Unknown" or most frequent category
-    if (any(is.na(df[[col]]))) {
-      most_frequent <- names(sort(table(df[[col]], useNA = "no"), decreasing = TRUE))[1]
-      replacement <- ifelse(is.null(most_frequent) || is.na(most_frequent), "Unknown", most_frequent)
-      df[[col]] <- ifelse(is.na(df[[col]]), replacement, df[[col]])
+
+  for (col in colnames(df)) {
+    if (is.character(df[[col]])) {
+      v <- df[[col]]
+      non_na <- v[!is.na(v)]
+      if (length(non_na) > 0) {
+        numeric_like <- grepl("^-?[0-9]+(\\.[0-9]+)?$", non_na)
+        if (mean(numeric_like) > 0.9) {
+          suppressWarnings({
+            num_v <- as.numeric(non_na)
+          })
+          if (!all(is.na(num_v))) {
+            suppressWarnings({
+              vv <- as.numeric(v)
+            })
+            df[[col]] <- vv
+          }
+        }
+      }
     }
   }
-  
-  # Step 4: Clean and standardize category labels
+
+  categorical_cols <- colnames(df)[sapply(df, function(x) is.character(x) || is.factor(x))]
+  numeric_cols <- colnames(df)[sapply(df, is.numeric)]
+
   for (col in categorical_cols) {
-    df[[col]] <- df[[col]] %>%
-      as.character() %>%
-      str_trim() %>%                    # Remove leading/trailing whitespace
-      str_to_lower() %>%                # Convert to lowercase
-      str_replace_all("[^a-z0-9\\s]", "") %>%  # Remove special characters
-      str_replace_all("\\s+", "_")      # Replace spaces with underscores
+    v <- df[[col]]
+    if (all(is.na(v))) {
+      df[[col]] <- "unknown"
+    } else if (any(is.na(v))) {
+      tbl <- table(v, useNA = "no")
+      mode_val <- names(tbl)[which.max(tbl)]
+      v[is.na(v)] <- mode_val
+      df[[col]] <- v
+    }
   }
-  
-  # Step 5: Reduce high cardinality of categories
-  cardinality_threshold <- 50  # Categories with more than 50 unique values
+
+  for (col in categorical_cols) {
+    v <- as.character(df[[col]])
+    v <- stringr::str_trim(v)
+    v <- stringr::str_to_lower(v)
+    v <- stringr::str_replace_all(v, "[^a-z0-9\\s]", " ")
+    v <- stringr::str_replace_all(v, "\\s+", "_")
+    df[[col]] <- v
+  }
+
+  high_cardinality_threshold <- 50
+  rare_prop_threshold <- 0.01
   high_cardinality_cols <- character()
-  
+  rare_category_info <- list()
+
   for (col in categorical_cols) {
-    unique_count <- length(unique(df[[col]]))
-    if (unique_count > cardinality_threshold) {
+    v <- df[[col]]
+    freq <- table(v)
+    prop <- as.numeric(freq) / sum(freq)
+    names(prop) <- names(freq)
+    unique_count <- length(freq)
+    if (unique_count > high_cardinality_threshold) {
       high_cardinality_cols <- c(high_cardinality_cols, col)
-      
-      # Group rare categories into "Other"
-      category_counts <- table(df[[col]])
-      rare_categories <- names(category_counts[category_counts < max(category_counts) * 0.01])
-      df[[col]] <- ifelse(df[[col]] %in% rare_categories, "other", df[[col]])
     }
-  }
-  
-  # Step 6: Handle rare categories and categorical outliers
-  for (col in categorical_cols) {
-    category_counts <- table(df[[col]])
-    rare_threshold <- nrow(df) * 0.01  # Less than 1% of data
-    
-    rare_categories <- names(category_counts[category_counts < rare_threshold])
-    if (length(rare_categories) > 0) {
-      df[[col]] <- ifelse(df[[col]] %in% rare_categories, "rare_category", df[[col]])
-    }
-  }
-  
-  # Step 7: Encode categorical variables
-  encoded_cols <- character()
-  encoding_stats <- list()
-  
-  for (col in categorical_cols) {
-    unique_count <- length(unique(df[[col]]))
-    
-    # Use one-hot encoding for low cardinality (< 10), label encoding for high cardinality
-    if (unique_count <= 10) {
-      # One-hot encoding
-      df_encoded <- df %>%
-        mutate(value = 1) %>%
-        pivot_wider(names_from = !!sym(col), values_from = value, values_fill = 0, names_prefix = paste0(col, "_"))
-      
-      # Remove original column and add encoded columns
-      df <- df %>% select(-!!sym(col))
-      new_cols <- setdiff(colnames(df_encoded), colnames(df))
-      df <- bind_cols(df, df_encoded %>% select(all_of(new_cols)))
-      encoded_cols <- c(encoded_cols, new_cols)
-      encoding_stats[[col]] <- list(method = "one_hot", columns = new_cols)
+    rare_levels <- names(prop)[prop < rare_prop_threshold]
+    if (length(rare_levels) > 0) {
+      df[[col]][df[[col]] %in% rare_levels] <- "other"
+      rare_category_info[[col]] <- list(
+        rare_levels = rare_levels,
+        threshold = rare_prop_threshold
+      )
     } else {
-      # Label encoding (numeric mapping)
-      unique_vals <- unique(df[[col]])
-      label_map <- setNames(1:length(unique_vals), unique_vals)
-      encoded_col_name <- paste0(col, "_encoded")
-      df[[encoded_col_name]] <- as.numeric(label_map[df[[col]]])
-      df <- df %>% select(-!!sym(col))
-      encoded_cols <- c(encoded_cols, encoded_col_name)
-      encoding_stats[[col]] <- list(method = "label", column = encoded_col_name)
+      rare_category_info[[col]] <- list(
+        rare_levels = character(),
+        threshold = rare_prop_threshold
+      )
     }
   }
-  
-  # Step 8: Feature engineering for categorical data
-  # Create interaction features for important categorical pairs (if any remain)
-  # This is a placeholder - can be expanded based on domain knowledge
-  
-  # Step 9: Handle missing numeric values (fill with median)
+
+  interaction_features <- list()
+  cat_unique_counts <- sapply(categorical_cols, function(col) length(unique(df[[col]])))
+  interaction_candidates <- categorical_cols[cat_unique_counts <= 20]
+  if (length(interaction_candidates) >= 2) {
+    interaction_candidates <- interaction_candidates[order(cat_unique_counts[interaction_candidates])]
+    interaction_candidates <- head(interaction_candidates, 3)
+    pairs <- combn(interaction_candidates, 2, simplify = FALSE)
+    for (p in pairs) {
+      c1 <- p[1]
+      c2 <- p[2]
+      combo <- paste(df[[c1]], df[[c2]], sep = "__")
+      freq <- table(combo)
+      freq_norm <- as.numeric(freq) / sum(freq)
+      names(freq_norm) <- names(freq)
+      feature_name <- paste0(c1, "__x__", c2, "_freq")
+      df[[feature_name]] <- as.numeric(freq_norm[combo])
+      interaction_features[[paste(c1, c2, sep = ":")]] <- list(
+        cols = c(c1, c2),
+        feature = feature_name,
+        method = "frequency_encoding"
+      )
+    }
+  }
+
+  encoding_stats <- list()
+  encoded_columns <- character()
+  freq_encoded_columns <- character()
+
+  for (col in categorical_cols) {
+    v <- df[[col]]
+    freq <- table(v)
+    freq_norm <- as.numeric(freq) / sum(freq)
+    names(freq_norm) <- names(freq)
+    freq_col <- paste0(col, "_freq")
+    df[[freq_col]] <- as.numeric(freq_norm[v])
+    freq_encoded_columns <- c(freq_encoded_columns, freq_col)
+
+    levels_col <- sort(unique(v))
+    unique_count <- length(levels_col)
+
+    if (unique_count <= 10) {
+      new_cols <- character()
+      for (lvl in levels_col) {
+        new_name <- paste0(col, "_", lvl)
+        df[[new_name]] <- as.integer(v == lvl)
+        new_cols <- c(new_cols, new_name)
+      }
+      encoding_stats[[col]] <- list(
+        method = "one_hot",
+        one_hot_columns = new_cols,
+        frequency_column = freq_col,
+        levels = levels_col
+      )
+      encoded_columns <- c(encoded_columns, new_cols, freq_col)
+    } else {
+      mapping <- seq_along(levels_col)
+      names(mapping) <- levels_col
+      label_col <- paste0(col, "_label")
+      df[[label_col]] <- as.integer(mapping[v])
+      encoding_stats[[col]] <- list(
+        method = "label",
+        label_column = label_col,
+        mapping = mapping,
+        frequency_column = freq_col,
+        levels = levels_col
+      )
+      encoded_columns <- c(encoded_columns, label_col, freq_col)
+    }
+  }
+
+  df <- df[, setdiff(colnames(df), categorical_cols), drop = FALSE]
+
   for (col in numeric_cols) {
-    if (any(is.na(df[[col]]))) {
-      median_val <- median(df[[col]], na.rm = TRUE)
-      df[[col]] <- ifelse(is.na(df[[col]]), median_val, df[[col]])
+    if (col %in% colnames(df)) {
+      v <- df[[col]]
+      if (any(is.na(v))) {
+        med <- stats::median(v, na.rm = TRUE)
+        v[is.na(v)] <- med
+        df[[col]] <- v
+      }
     }
   }
-  
-  # Step 10: Scaling/normalizing numeric features after encoding
-  numeric_cols_final <- colnames(df)[sapply(df, is.numeric)]
+
   scaling_stats <- list()
-  
-  for (col in numeric_cols_final) {
-    # Standardization (z-score normalization)
-    mean_val <- mean(df[[col]], na.rm = TRUE)
-    sd_val <- sd(df[[col]], na.rm = TRUE)
-    
-    if (sd_val > 0) {
-      df[[col]] <- (df[[col]] - mean_val) / sd_val
-      scaling_stats[[col]] <- list(mean = mean_val, sd = sd_val, method = "standardization")
+  for (col in numeric_cols) {
+    if (col %in% colnames(df)) {
+      v <- df[[col]]
+      mean_val <- mean(v, na.rm = TRUE)
+      sd_val <- stats::sd(v, na.rm = TRUE)
+      if (!is.na(sd_val) && sd_val > 0) {
+        df[[col]] <- (v - mean_val) / sd_val
+        scaling_stats[[col]] <- list(
+          mean = mean_val,
+          sd = sd_val,
+          method = "standardization"
+        )
+      }
     }
   }
-  
-  # Prepare metadata
+
+  numeric_cols_final <- colnames(df)[sapply(df, is.numeric)]
+
   metadata <- list(
-    original_rows = original_rows,
-    processed_rows = nrow(df),
-    original_columns = length(original_cols),
-    processed_columns = ncol(df),
-    duplicates_removed = duplicates_removed,
+    original_rows = jsonlite::unbox(original_rows),
+    processed_rows = jsonlite::unbox(nrow(df)),
+    original_columns = jsonlite::unbox(length(original_cols)),
+    processed_columns = jsonlite::unbox(ncol(df)),
+    duplicates_removed = jsonlite::unbox(duplicates_removed),
     categorical_columns = categorical_cols,
     numeric_columns = numeric_cols,
-    encoded_columns = encoded_cols,
+    numeric_columns_final = numeric_cols_final,
+    encoded_columns = encoded_columns,
+    frequency_encoded_columns = freq_encoded_columns,
     high_cardinality_columns = high_cardinality_cols,
+    rare_category_info = rare_category_info,
     encoding_stats = encoding_stats,
     scaling_stats = scaling_stats,
+    interaction_features = interaction_features,
+    parameters = list(
+      high_cardinality_threshold = jsonlite::unbox(high_cardinality_threshold),
+      rare_prop_threshold = jsonlite::unbox(rare_prop_threshold),
+      one_hot_max_levels = jsonlite::unbox(10),
+      interaction_max_levels = jsonlite::unbox(20),
+      interaction_max_columns = jsonlite::unbox(3)
+    ),
     preprocessing_steps = c(
       "duplicate_removal",
-      "missing_value_handling",
+      "missing_token_normalization",
+      "numeric_type_inference",
+      "missing_categorical_imputation",
       "category_label_cleaning",
       "high_cardinality_reduction",
       "rare_category_handling",
+      "categorical_frequency_encoding",
+      "categorical_interaction_features",
       "categorical_encoding",
+      "numeric_missing_imputation",
       "numeric_scaling"
     )
   )
-  
-  return(list(data = df, metadata = metadata))
+
+  list(data = df, metadata = metadata)
 }
 
-#* Health check endpoint
+get_processing_job_with_dataset <- function(job_id) {
+  pg_conn <- get_postgres_conn()
+  if (is.null(pg_conn)) return(NULL)
+  on.exit({
+    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
+  }, add = TRUE)
+  job_df <- tryCatch({
+    dbGetQuery(pg_conn, '
+      SELECT 
+        pj.id               AS "jobId",
+        pj.status           AS "status",
+        pj."errorMessage"   AS "errorMessage",
+        pj."resultKey"      AS "resultKey",
+        pj."datasetId"      AS "datasetId",
+        d."storagePath"     AS "storagePath",
+        d."originalName"    AS "originalName",
+        d."mimeType"        AS "mimeType",
+        d."sizeBytes"       AS "sizeBytes"
+      FROM "ProcessingJob" pj
+      JOIN "Dataset" d ON d.id = pj."datasetId"
+      WHERE pj.id = $1
+    ', params = list(job_id))
+  }, error = function(e) {
+    warning("Failed to fetch ProcessingJob from PostgreSQL: ", e$message)
+    NULL
+  })
+  if (is.null(job_df) || nrow(job_df) == 0) return(NULL)
+  job_df[1, , drop = FALSE]
+}
+
+update_processing_job_status <- function(job_id, status, error_message = NULL, result_key = NULL, mark_started = FALSE, mark_completed = FALSE) {
+  pg_conn <- get_postgres_conn()
+  if (is.null(pg_conn)) return(FALSE)
+  on.exit({
+    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
+  }, add = TRUE)
+  set_clauses <- c("status = $2")
+  params <- list(job_id, status)
+  idx <- 3
+  if (!is.null(error_message)) {
+    set_clauses <- c(set_clauses, sprintf('"errorMessage" = $%d', idx))
+    params[[idx]] <- error_message
+    idx <- idx + 1
+  }
+  if (!is.null(result_key)) {
+    set_clauses <- c(set_clauses, sprintf('"resultKey" = $%d', idx))
+    params[[idx]] <- result_key
+    idx <- idx + 1
+  }
+  if (mark_started) {
+    set_clauses <- c(set_clauses, '"startedAt" = COALESCE("startedAt", NOW())')
+  }
+  if (mark_completed) {
+    set_clauses <- c(set_clauses, '"completedAt" = NOW()')
+  }
+  sql <- sprintf('UPDATE "ProcessingJob" SET %s WHERE id = $1', paste(set_clauses, collapse = ", "))
+  ok <- tryCatch({
+    dbExecute(pg_conn, sql, params = params)
+    TRUE
+  }, error = function(e) {
+    warning("Failed to update ProcessingJob status: ", e$message)
+    FALSE
+  })
+  ok
+}
+
 #* @get /health
 #* @serializer json
 function() {
   redis_status <- "disconnected"
   postgres_status <- "disconnected"
-  
   redis_conn <- get_redis_conn()
   if (!is.null(redis_conn)) {
     tryCatch({
       redis_conn$PING()
       redis_status <- "connected"
-    }, error = function(e) NULL)
+    }, error = function(e) {})
   }
-  
   pg_conn <- get_postgres_conn()
   if (!is.null(pg_conn)) {
     tryCatch({
@@ -327,7 +459,6 @@ function() {
       if (!is.null(pg_conn)) dbDisconnect(pg_conn)
     })
   }
-  
   list(
     status = "ok",
     service = "r-engine",
@@ -337,116 +468,62 @@ function() {
   )
 }
 
-#* Upload dataset file
-#* @param file:file The dataset file (CSV)
-#* @post /upload
-#* @serializer json
-function(req, res, file) {
-  if (is.null(file)) {
-    res$status <- 400
-    return(list(error = "file is required"))
-  }
-  
-  ext <- tolower(file_ext(file$filename %||% ""))
-  if (!ext %in% c("csv")) {
-    res$status <- 415
-    return(list(error = "unsupported file type; only CSV supported"))
-  }
-  
-  dir.create("data/uploads", recursive = TRUE, showWarnings = FALSE)
-  id <- UUIDgenerate()
-  path <- file.path("data/uploads", paste0(id, ".", ext))
-  ok <- file.copy(file$datapath, path, overwrite = TRUE)
-  
-  if (!ok) {
-    res$status <- 500
-    return(list(error = "failed to save upload"))
-  }
-  
-  .job_store[[id]] <- list(
-    status = "uploaded",
-    path = path,
-    filename = file$filename,
-    createdAt = as.character(Sys.time())
-  )
-  
-  list(jobId = id, status = "uploaded", message = "File uploaded successfully")
-}
-
-#* Process job - accepts job object with data and returns processed JSON
 #* @post /process
 #* @serializer json
 function(req, res) {
-  # Parse request body
   body <- tryCatch({
     jsonlite::fromJSON(req$postBody)
   }, error = function(e) {
+    NULL
+  })
+  if (is.null(body)) {
     res$status <- 400
     return(list(error = "Invalid JSON in request body"))
-  })
-  
-  # Validate job structure
+  }
   if (is.null(body$data) || (!is.data.frame(body$data) && !is.list(body$data))) {
-    # Try to convert data to dataframe if it's a list/array
     if (is.list(body$data) && length(body$data) > 0) {
       body$data <- tryCatch({
         jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
       }, error = function(e) {
-        res$status <- 400
-        return(list(error = "Data must be a JSON array of objects"))
+        NULL
       })
-    } else {
-      res$status <- 400
-      return(list(error = "Job must contain 'data' field with array of objects"))
     }
   }
-  
-  # Convert to dataframe if needed
   df <- if (is.data.frame(body$data)) {
     body$data
+  } else if (is.null(body$data)) {
+    NULL
   } else {
     tryCatch({
       jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
     }, error = function(e) {
-      res$status <- 400
-      return(list(error = "Failed to convert data to dataframe"))
+      NULL
     })
   }
-  
-  if (is.null(df) || nrow(df) == 0) {
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
     res$status <- 400
-    return(list(error = "Dataset is empty"))
+    return(list(error = "Job must contain non-empty 'data' field as array of objects"))
   }
-  
-  # Generate job ID if not provided
   job_id <- body$jobId %||% UUIDgenerate()
-  
-  # Perform comprehensive preprocessing
+  err_msg <- NULL
   result <- tryCatch({
     preprocess_categorical_data(df)
   }, error = function(e) {
-    res$status <- 500
-    return(list(error = paste("Preprocessing failed:", e$message)))
+    err_msg <<- e$message
+    NULL
   })
-  
   if (is.null(result)) {
-    return(list(error = "Preprocessing returned NULL"))
+    res$status <- 500
+    return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
   }
-  
   processed_df <- result$data
   metadata <- result$metadata
-  metadata$jobId <- job_id
-  metadata$filename <- body$filename %||% "inline_data"
-  metadata$source <- "api_request"
-  
-  # Store in Redis and PostgreSQL
+  metadata$jobId <- jsonlite::unbox(job_id)
+  metadata$filename <- jsonlite::unbox(body$filename %||% "inline_data")
+  metadata$source <- jsonlite::unbox("api_request")
   redis_success <- store_in_redis(job_id, processed_df, metadata)
   postgres_success <- store_in_postgres(job_id, processed_df, metadata)
-  
-  # Convert to JSON-friendly format
   cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
-  
-  # Return JSON response
   list(
     jobId = job_id,
     status = "processed",
@@ -462,8 +539,7 @@ function(req, res) {
   )
 }
 
-#* Clean and preprocess uploaded dataset
-#* @param jobId:string The job ID returned from /upload
+#* @param jobId:string The ProcessingJob ID
 #* @post /clean
 #* @serializer json
 function(req, res, jobId) {
@@ -471,60 +547,120 @@ function(req, res, jobId) {
     res$status <- 400
     return(list(error = "jobId is required"))
   }
-  
-  job <- .job_store[[jobId]]
+
+  job <- get_processing_job_with_dataset(jobId)
   if (is.null(job)) {
     res$status <- 404
-    return(list(error = "job not found"))
+    return(list(error = "job not found in PostgreSQL"))
   }
-  
-  # Read dataset
-  df <- tryCatch({
-    readr::read_csv(job$path, show_col_types = FALSE)
-  }, error = function(e) {
-    res$status <- 400
-    return(list(error = paste("Failed to parse CSV:", e$message)))
-  })
-  
+
+  file_path <- job$storagePath[1]
+  filename <- job$originalName[1]
+
+  update_processing_job_status(jobId, status = "RUNNING", mark_started = TRUE)
+
+  df <- NULL
+
+  if (!is.na(file_path) && file_path != "") {
+    df <- tryCatch({
+      readr::read_csv(file_path, show_col_types = FALSE)
+    }, error = function(e) {
+      NULL
+    })
+  }
+
   if (is.null(df) || nrow(df) == 0) {
-    res$status <- 400
-    return(list(error = "Dataset is empty or could not be read"))
+    body <- tryCatch({
+      if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody) else NULL
+    }, error = function(e) {
+      NULL
+    })
+
+    if (!is.null(body) && !is.null(body$data)) {
+      df <- if (is.data.frame(body$data)) {
+        body$data
+      } else if (is.list(body$data) && length(body$data) > 0) {
+        tryCatch({
+          jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
+        }, error = function(e) {
+          NULL
+        })
+      } else {
+        NULL
+      }
+      if (!is.null(body$filename)) {
+        filename <- body$filename
+      }
+    }
   }
-  
-  # Perform comprehensive preprocessing
+
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
+    update_processing_job_status(
+      jobId,
+      status = "FAILED",
+      error_message = "Dataset is empty or could not be read from file or body",
+      mark_completed = TRUE
+    )
+    res$status <- 400
+    return(list(error = "Dataset is empty or could not be read from file or body"))
+  }
+
+  err_msg <- NULL
   result <- tryCatch({
     preprocess_categorical_data(df)
   }, error = function(e) {
-    res$status <- 500
-    return(list(error = paste("Preprocessing failed:", e$message)))
+    err_msg <<- e$message
+    NULL
   })
-  
+
   if (is.null(result)) {
-    return(list(error = "Preprocessing returned NULL"))
+    update_processing_job_status(
+      jobId,
+      status = "FAILED",
+      error_message = paste("Preprocessing failed:", err_msg %||% ""),
+      mark_completed = TRUE
+    )
+    res$status <- 500
+    return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
   }
-  
+
   processed_df <- result$data
   metadata <- result$metadata
-  metadata$filename <- job$filename
-  metadata$jobId <- jobId
-  
-  # Store in Redis and PostgreSQL
+  metadata$filename <- jsonlite::unbox(filename)
+  metadata$jobId <- jsonlite::unbox(jobId)
+  metadata$datasetId <- jsonlite::unbox(job$datasetId[1])
+
+  result_key <- paste0("processed:", jobId)
+
   redis_success <- store_in_redis(jobId, processed_df, metadata)
   postgres_success <- store_in_postgres(jobId, processed_df, metadata)
-  
-  # Update job status
-  .job_store[[jobId]]$status <- "cleaned"
-  .job_store[[jobId]]$rows <- nrow(processed_df)
-  .job_store[[jobId]]$metadata <- metadata
-  .job_store[[jobId]]$redis_stored <- redis_success
-  .job_store[[jobId]]$postgres_stored <- postgres_success
-  
-  # Convert to JSON-friendly format
+
+  store_error_message <- NULL
+  if (!postgres_success) {
+    if (!redis_success) {
+      store_error_message <- "Processed successfully but failed to store results in both PostgreSQL and Redis"
+    } else {
+      store_error_message <- "Processed successfully but failed to store results in PostgreSQL; results stored only in Redis"
+    }
+  } else if (!redis_success) {
+    store_error_message <- "Processed successfully and stored in PostgreSQL, but failed to store results in Redis"
+  }
+
+  final_status <- if (postgres_success == TRUE) "SUCCESS" else "FAILED"
+
+  update_processing_job_status(
+    jobId,
+    status = final_status,
+    result_key = if (redis_success) result_key else NULL,
+    error_message = store_error_message,
+    mark_completed = TRUE
+  )
+
   cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
-  
+
   list(
     jobId = jobId,
-    status = "cleaned",
+    status = if (postgres_success) "cleaned" else "failed",
     rows = nrow(processed_df),
     originalRows = metadata$original_rows,
     columns = ncol(processed_df),
@@ -537,36 +673,32 @@ function(req, res, jobId) {
   )
 }
 
-#* Clean inline JSON data
+
+
 #* @post /clean-inline
 #* @serializer json
 function(req, res) {
   body <- tryCatch({
     jsonlite::fromJSON(req$postBody, simplifyDataFrame = TRUE)
   }, error = function(e) {
-    res$status <- 400
-    return(list(error = "Invalid JSON in request body"))
+    NULL
   })
-  
   if (is.null(body) || !is.data.frame(body)) {
     res$status <- 400
     return(list(error = "Body must be a JSON array of objects"))
   }
-  
-  # Perform preprocessing
+  err_msg <- NULL
   result <- tryCatch({
     preprocess_categorical_data(body)
   }, error = function(e) {
-    res$status <- 500
-    return(list(error = paste("Preprocessing failed:", e$message)))
+    err_msg <<- e$message
+    NULL
   })
-  
   if (is.null(result)) {
-    return(list(error = "Preprocessing returned NULL"))
+    res$status <- 500
+    return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
   }
-  
   cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(result$data, na = "string"))
-  
   list(
     rows = nrow(result$data),
     originalRows = result$metadata$original_rows,
@@ -575,37 +707,6 @@ function(req, res) {
   )
 }
 
-#* Get job status
-#* @param jobId:string The job ID
-#* @get /status
-#* @serializer json
-function(jobId, res) {
-  if (is.null(jobId) || jobId == "") {
-    res$status <- 400
-    return(list(error = "jobId is required"))
-  }
-  
-  job <- .job_store[[jobId]]
-  if (is.null(job)) {
-    res$status <- 404
-    return(list(error = "job not found"))
-  }
-  
-  list(
-    jobId = jobId,
-    status = job$status,
-    filename = job$filename,
-    createdAt = job$createdAt,
-    rows = job$rows,
-    storage = list(
-      redis = ifelse(job$redis_stored %||% FALSE, "stored", "not stored"),
-      postgres = ifelse(job$postgres_stored %||% FALSE, "stored", "not stored")
-    ),
-    metadata = job$metadata %||% NULL
-  )
-}
-
-#* Get processed data from Redis
 #* @param jobId:string The job ID
 #* @get /result/redis
 #* @serializer json
@@ -614,24 +715,20 @@ function(jobId, res) {
     res$status <- 400
     return(list(error = "jobId is required"))
   }
-  
   redis_conn <- get_redis_conn()
   if (is.null(redis_conn)) {
     res$status <- 503
     return(list(error = "Redis not available"))
   }
-  
   data_json <- redis_conn$GET(paste0("processed:", jobId))
   if (is.null(data_json)) {
     res$status <- 404
     return(list(error = "Processed data not found in Redis"))
   }
-  
   data <- jsonlite::fromJSON(data_json)
   list(jobId = jobId, data = data)
 }
 
-#* Get processed data from PostgreSQL
 #* @param jobId:string The job ID
 #* @get /result/postgres
 #* @serializer json
@@ -640,95 +737,30 @@ function(jobId, res) {
     res$status <- 400
     return(list(error = "jobId is required"))
   }
-  
   pg_conn <- get_postgres_conn()
   if (is.null(pg_conn)) {
     res$status <- 503
     return(list(error = "PostgreSQL not available"))
   }
-  
-  tryCatch({
+  on.exit({
+    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
+  }, add = TRUE)
+  out <- tryCatch({
     result <- dbGetQuery(pg_conn, "
       SELECT data FROM processed_data 
       WHERE job_id = $1 
       ORDER BY row_index
     ", params = list(jobId))
-    
     if (nrow(result) == 0) {
       res$status <- 404
       return(list(error = "Processed data not found in PostgreSQL"))
     }
-    
-    # Combine all rows
     all_data <- lapply(result$data, function(x) jsonlite::fromJSON(x))
-    df <- bind_rows(all_data)
-    
-    dbDisconnect(pg_conn)
+    df <- dplyr::bind_rows(all_data)
     list(jobId = jobId, data = df)
   }, error = function(e) {
-    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
     res$status <- 500
     return(list(error = paste("Failed to retrieve data:", e$message)))
   })
-}
-
-#* Download cleaned result as CSV
-#* @param jobId:string The job ID
-#* @param source:string Data source: "redis", "postgres", or "memory" (default)
-#* @get /result
-#* @serializer csv
-function(jobId, source = "memory", res) {
-  if (is.null(jobId) || jobId == "") {
-    res$status <- 400
-    return(list(error = "jobId is required"))
-  }
-  
-  job <- .job_store[[jobId]]
-  if (is.null(job) || job$status != "cleaned") {
-    res$status <- 409
-    return(list(error = "Job not cleaned yet. Please call /clean first"))
-  }
-  
-  # Retrieve data based on source
-  if (source == "redis") {
-    redis_conn <- get_redis_conn()
-    if (is.null(redis_conn)) {
-      res$status <- 503
-      return(list(error = "Redis not available"))
-    }
-    data_json <- redis_conn$GET(paste0("processed:", jobId))
-    if (is.null(data_json)) {
-      res$status <- 404
-      return(list(error = "Data not found in Redis"))
-    }
-    df <- jsonlite::fromJSON(data_json)
-  } else if (source == "postgres") {
-    pg_conn <- get_postgres_conn()
-    if (is.null(pg_conn)) {
-      res$status <- 503
-      return(list(error = "PostgreSQL not available"))
-    }
-    result <- dbGetQuery(pg_conn, "
-      SELECT data FROM processed_data 
-      WHERE job_id = $1 
-      ORDER BY row_index
-    ", params = list(jobId))
-    if (nrow(result) == 0) {
-      res$status <- 404
-      return(list(error = "Data not found in PostgreSQL"))
-    }
-    all_data <- lapply(result$data, function(x) jsonlite::fromJSON(x))
-    df <- bind_rows(all_data)
-    dbDisconnect(pg_conn)
-  } else {
-    # Read from original file and reprocess (or cache in memory)
-    df <- readr::read_csv(job$path, show_col_types = FALSE)
-    result <- preprocess_categorical_data(df)
-    df <- result$data
-  }
-  
-  res$setHeader("Content-Type", "text/csv")
-  res$setHeader("Content-Disposition", paste0('attachment; filename="cleaned_', jobId, '.csv"'))
-  
-  return(df)
+  out
 }
