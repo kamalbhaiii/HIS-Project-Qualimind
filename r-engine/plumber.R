@@ -54,7 +54,6 @@ get_postgres_conn <- function() {
   })
 }
 
-
 store_in_redis <- function(job_id, processed_data, metadata) {
   redis_conn <- get_redis_conn()
   if (is.null(redis_conn)) return(FALSE)
@@ -76,9 +75,11 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
   on.exit({
     if (!is.null(pg_conn)) dbDisconnect(pg_conn)
   }, add = TRUE)
+
   tryCatch({
+    # ONLY summary / metadata is stored now
     dbExecute(pg_conn, "
-      CREATE TABLE IF NOT EXISTS processed_datasets (
+      CREATE TABLE IF NOT EXISTS dataset_processing_summary (
         job_id VARCHAR(255) PRIMARY KEY,
         original_filename VARCHAR(500),
         original_rows INTEGER,
@@ -90,27 +91,29 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
         processing_stats JSONB
       )
     ")
-    dbExecute(pg_conn, "
-      CREATE TABLE IF NOT EXISTS processed_data (
-        job_id VARCHAR(255),
-        row_index INTEGER,
-        data JSONB,
-        PRIMARY KEY (job_id, row_index)
-      )
-    ")
+
     metadata_json <- jsonlite::toJSON(metadata, auto_unbox = TRUE)
     stats_json <- jsonlite::toJSON(list(
       categorical_columns = length(metadata$categorical_columns %||% c()),
-      encoded_columns = length(metadata$encoded_columns %||% c()),
-      numeric_columns = length(metadata$numeric_columns %||% c())
+      encoded_columns     = length(metadata$encoded_columns %||% c()),
+      numeric_columns     = length(metadata$numeric_columns %||% c())
     ), auto_unbox = TRUE)
+
     dbExecute(pg_conn, "
-      INSERT INTO processed_datasets (job_id, original_filename, original_rows, processed_rows, processed_columns, metadata, processing_stats)
+      INSERT INTO dataset_processing_summary (
+        job_id,
+        original_filename,
+        original_rows,
+        processed_rows,
+        processed_columns,
+        metadata,
+        processing_stats
+      )
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (job_id) DO UPDATE SET
-        processed_rows = EXCLUDED.processed_rows,
-        processed_at = CURRENT_TIMESTAMP,
-        metadata = EXCLUDED.metadata,
+        processed_rows   = EXCLUDED.processed_rows,
+        processed_at     = CURRENT_TIMESTAMP,
+        metadata         = EXCLUDED.metadata,
         processing_stats = EXCLUDED.processing_stats
     ", params = list(
       job_id,
@@ -121,14 +124,7 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
       metadata_json,
       stats_json
     ))
-    dbExecute(pg_conn, "DELETE FROM processed_data WHERE job_id = $1", params = list(job_id))
-    for (i in 1:nrow(processed_data)) {
-      row_json <- jsonlite::toJSON(as.list(processed_data[i, ]), auto_unbox = TRUE)
-      dbExecute(pg_conn, "
-        INSERT INTO processed_data (job_id, row_index, data)
-        VALUES ($1, $2, $3)
-      ", params = list(job_id, i - 1, row_json))
-    }
+
     TRUE
   }, error = function(e) {
     warning("PostgreSQL storage failed: ", e$message)
@@ -330,27 +326,27 @@ preprocess_categorical_data <- function(df) {
   numeric_cols_final <- colnames(df)[sapply(df, is.numeric)]
 
   metadata <- list(
-    original_rows = jsonlite::unbox(original_rows),
-    processed_rows = jsonlite::unbox(nrow(df)),
-    original_columns = jsonlite::unbox(length(original_cols)),
-    processed_columns = jsonlite::unbox(ncol(df)),
-    duplicates_removed = jsonlite::unbox(duplicates_removed),
-    categorical_columns = categorical_cols,
-    numeric_columns = numeric_cols,
-    numeric_columns_final = numeric_cols_final,
-    encoded_columns = encoded_columns,
+    original_rows             = jsonlite::unbox(original_rows),
+    processed_rows            = jsonlite::unbox(nrow(df)),
+    original_columns          = jsonlite::unbox(length(original_cols)),
+    processed_columns         = jsonlite::unbox(ncol(df)),
+    duplicates_removed        = jsonlite::unbox(duplicates_removed),
+    categorical_columns       = categorical_cols,
+    numeric_columns           = numeric_cols,
+    numeric_columns_final     = numeric_cols_final,
+    encoded_columns           = encoded_columns,
     frequency_encoded_columns = freq_encoded_columns,
-    high_cardinality_columns = high_cardinality_cols,
-    rare_category_info = rare_category_info,
-    encoding_stats = encoding_stats,
-    scaling_stats = scaling_stats,
-    interaction_features = interaction_features,
+    high_cardinality_columns  = high_cardinality_cols,
+    rare_category_info        = rare_category_info,
+    encoding_stats            = encoding_stats,
+    scaling_stats             = scaling_stats,
+    interaction_features      = interaction_features,
     parameters = list(
       high_cardinality_threshold = jsonlite::unbox(high_cardinality_threshold),
-      rare_prop_threshold = jsonlite::unbox(rare_prop_threshold),
-      one_hot_max_levels = jsonlite::unbox(10),
-      interaction_max_levels = jsonlite::unbox(20),
-      interaction_max_columns = jsonlite::unbox(3)
+      rare_prop_threshold        = jsonlite::unbox(rare_prop_threshold),
+      one_hot_max_levels         = jsonlite::unbox(10),
+      interaction_max_levels     = jsonlite::unbox(20),
+      interaction_max_columns    = jsonlite::unbox(3)
     ),
     preprocessing_steps = c(
       "duplicate_removal",
@@ -377,6 +373,7 @@ get_processing_job_with_dataset <- function(job_id) {
   on.exit({
     if (!is.null(pg_conn)) dbDisconnect(pg_conn)
   }, add = TRUE)
+
   job_df <- tryCatch({
     dbGetQuery(pg_conn, '
       SELECT 
@@ -397,36 +394,48 @@ get_processing_job_with_dataset <- function(job_id) {
     warning("Failed to fetch ProcessingJob from PostgreSQL: ", e$message)
     NULL
   })
+
   if (is.null(job_df) || nrow(job_df) == 0) return(NULL)
   job_df[1, , drop = FALSE]
 }
 
-update_processing_job_status <- function(job_id, status, error_message = NULL, result_key = NULL, mark_started = FALSE, mark_completed = FALSE) {
+update_processing_job_status <- function(job_id,
+                                         status,
+                                         error_message = NULL,
+                                         result_key = NULL,
+                                         mark_started = FALSE,
+                                         mark_completed = FALSE) {
   pg_conn <- get_postgres_conn()
   if (is.null(pg_conn)) return(FALSE)
   on.exit({
     if (!is.null(pg_conn)) dbDisconnect(pg_conn)
   }, add = TRUE)
+
   set_clauses <- c("status = $2")
   params <- list(job_id, status)
   idx <- 3
+
   if (!is.null(error_message)) {
     set_clauses <- c(set_clauses, sprintf('"errorMessage" = $%d', idx))
     params[[idx]] <- error_message
     idx <- idx + 1
   }
+
   if (!is.null(result_key)) {
     set_clauses <- c(set_clauses, sprintf('"resultKey" = $%d', idx))
     params[[idx]] <- result_key
     idx <- idx + 1
   }
+
   if (mark_started) {
     set_clauses <- c(set_clauses, '"startedAt" = COALESCE("startedAt", NOW())')
   }
   if (mark_completed) {
     set_clauses <- c(set_clauses, '"completedAt" = NOW()')
   }
+
   sql <- sprintf('UPDATE "ProcessingJob" SET %s WHERE id = $1', paste(set_clauses, collapse = ", "))
+
   ok <- tryCatch({
     dbExecute(pg_conn, sql, params = params)
     TRUE
@@ -434,6 +443,7 @@ update_processing_job_status <- function(job_id, status, error_message = NULL, r
     warning("Failed to update ProcessingJob status: ", e$message)
     FALSE
   })
+
   ok
 }
 
@@ -442,6 +452,7 @@ update_processing_job_status <- function(job_id, status, error_message = NULL, r
 function() {
   redis_status <- "disconnected"
   postgres_status <- "disconnected"
+
   redis_conn <- get_redis_conn()
   if (!is.null(redis_conn)) {
     tryCatch({
@@ -449,6 +460,7 @@ function() {
       redis_status <- "connected"
     }, error = function(e) {})
   }
+
   pg_conn <- get_postgres_conn()
   if (!is.null(pg_conn)) {
     tryCatch({
@@ -459,11 +471,12 @@ function() {
       if (!is.null(pg_conn)) dbDisconnect(pg_conn)
     })
   }
+
   list(
-    status = "ok",
-    service = "r-engine",
-    time = as.character(Sys.time()),
-    redis = redis_status,
+    status   = "ok",
+    service  = "r-engine",
+    time     = as.character(Sys.time()),
+    redis    = redis_status,
     postgres = postgres_status
   )
 }
@@ -476,10 +489,12 @@ function(req, res) {
   }, error = function(e) {
     NULL
   })
+
   if (is.null(body)) {
     res$status <- 400
     return(list(error = "Invalid JSON in request body"))
   }
+
   if (is.null(body$data) || (!is.data.frame(body$data) && !is.list(body$data))) {
     if (is.list(body$data) && length(body$data) > 0) {
       body$data <- tryCatch({
@@ -489,6 +504,7 @@ function(req, res) {
       })
     }
   }
+
   df <- if (is.data.frame(body$data)) {
     body$data
   } else if (is.null(body$data)) {
@@ -500,11 +516,14 @@ function(req, res) {
       NULL
     })
   }
+
   if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
     res$status <- 400
     return(list(error = "Job must contain non-empty 'data' field as array of objects"))
   }
+
   job_id <- body$jobId %||% UUIDgenerate()
+
   err_msg <- NULL
   result <- tryCatch({
     preprocess_categorical_data(df)
@@ -512,30 +531,35 @@ function(req, res) {
     err_msg <<- e$message
     NULL
   })
+
   if (is.null(result)) {
     res$status <- 500
     return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
   }
+
   processed_df <- result$data
   metadata <- result$metadata
-  metadata$jobId <- jsonlite::unbox(job_id)
+  metadata$jobId   <- jsonlite::unbox(job_id)
   metadata$filename <- jsonlite::unbox(body$filename %||% "inline_data")
-  metadata$source <- jsonlite::unbox("api_request")
-  redis_success <- store_in_redis(job_id, processed_df, metadata)
+  metadata$source  <- jsonlite::unbox("api_request")
+
+  redis_success    <- store_in_redis(job_id, processed_df, metadata)
   postgres_success <- store_in_postgres(job_id, processed_df, metadata)
+
   cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
+
   list(
-    jobId = job_id,
-    status = "processed",
-    rows = nrow(processed_df),
+    jobId        = job_id,
+    status       = "processed",
+    rows         = nrow(processed_df),
     originalRows = metadata$original_rows,
-    columns = ncol(processed_df),
-    storage = list(
-      redis = ifelse(redis_success, "success", "failed"),
+    columns      = ncol(processed_df),
+    storage      = list(
+      redis    = ifelse(redis_success, "success", "failed"),
       postgres = ifelse(postgres_success, "success", "failed")
     ),
-    metadata = metadata,
-    data = cleaned_data
+    metadata     = metadata,
+    data         = cleaned_data
   )
 }
 
@@ -555,7 +579,7 @@ function(req, res, jobId) {
   }
 
   file_path <- job$storagePath[1]
-  filename <- job$originalName[1]
+  filename  <- job$originalName[1]
 
   update_processing_job_status(jobId, status = "RUNNING", mark_started = TRUE)
 
@@ -588,6 +612,7 @@ function(req, res, jobId) {
       } else {
         NULL
       }
+
       if (!is.null(body$filename)) {
         filename <- body$filename
       }
@@ -597,8 +622,8 @@ function(req, res, jobId) {
   if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
     update_processing_job_status(
       jobId,
-      status = "FAILED",
-      error_message = "Dataset is empty or could not be read from file or body",
+      status         = "FAILED",
+      error_message  = "Dataset is empty or could not be read from file or body",
       mark_completed = TRUE
     )
     res$status <- 400
@@ -616,8 +641,8 @@ function(req, res, jobId) {
   if (is.null(result)) {
     update_processing_job_status(
       jobId,
-      status = "FAILED",
-      error_message = paste("Preprocessing failed:", err_msg %||% ""),
+      status         = "FAILED",
+      error_message  = paste("Preprocessing failed:", err_msg %||% ""),
       mark_completed = TRUE
     )
     res$status <- 500
@@ -626,13 +651,13 @@ function(req, res, jobId) {
 
   processed_df <- result$data
   metadata <- result$metadata
-  metadata$filename <- jsonlite::unbox(filename)
-  metadata$jobId <- jsonlite::unbox(jobId)
+  metadata$filename  <- jsonlite::unbox(filename)
+  metadata$jobId     <- jsonlite::unbox(jobId)
   metadata$datasetId <- jsonlite::unbox(job$datasetId[1])
 
   result_key <- paste0("processed:", jobId)
 
-  redis_success <- store_in_redis(jobId, processed_df, metadata)
+  redis_success    <- store_in_redis(jobId, processed_df, metadata)
   postgres_success <- store_in_postgres(jobId, processed_df, metadata)
 
   store_error_message <- NULL
@@ -650,30 +675,28 @@ function(req, res, jobId) {
 
   update_processing_job_status(
     jobId,
-    status = final_status,
-    result_key = if (redis_success) result_key else NULL,
-    error_message = store_error_message,
+    status         = final_status,
+    result_key     = if (redis_success) result_key else NULL,
+    error_message  = store_error_message,
     mark_completed = TRUE
   )
 
   cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
 
   list(
-    jobId = jobId,
-    status = if (postgres_success) "cleaned" else "failed",
-    rows = nrow(processed_df),
+    jobId        = jobId,
+    status       = if (postgres_success) "cleaned" else "failed",
+    rows         = nrow(processed_df),
     originalRows = metadata$original_rows,
-    columns = ncol(processed_df),
-    storage = list(
-      redis = ifelse(redis_success, "success", "failed"),
+    columns      = ncol(processed_df),
+    storage      = list(
+      redis    = ifelse(redis_success, "success", "failed"),
       postgres = ifelse(postgres_success, "success", "failed")
     ),
-    metadata = metadata,
-    data = cleaned_data
+    metadata     = metadata,
+    data         = cleaned_data
   )
 }
-
-
 
 #* @post /clean-inline
 #* @serializer json
@@ -683,10 +706,12 @@ function(req, res) {
   }, error = function(e) {
     NULL
   })
+
   if (is.null(body) || !is.data.frame(body)) {
     res$status <- 400
     return(list(error = "Body must be a JSON array of objects"))
   }
+
   err_msg <- NULL
   result <- tryCatch({
     preprocess_categorical_data(body)
@@ -694,16 +719,19 @@ function(req, res) {
     err_msg <<- e$message
     NULL
   })
+
   if (is.null(result)) {
     res$status <- 500
     return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
   }
+
   cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(result$data, na = "string"))
+
   list(
-    rows = nrow(result$data),
+    rows         = nrow(result$data),
     originalRows = result$metadata$original_rows,
-    metadata = result$metadata,
-    data = cleaned_data
+    metadata     = result$metadata,
+    data         = cleaned_data
   )
 }
 
@@ -715,16 +743,19 @@ function(jobId, res) {
     res$status <- 400
     return(list(error = "jobId is required"))
   }
+
   redis_conn <- get_redis_conn()
   if (is.null(redis_conn)) {
     res$status <- 503
     return(list(error = "Redis not available"))
   }
+
   data_json <- redis_conn$GET(paste0("processed:", jobId))
   if (is.null(data_json)) {
     res$status <- 404
     return(list(error = "Processed data not found in Redis"))
   }
+
   data <- jsonlite::fromJSON(data_json)
   list(jobId = jobId, data = data)
 }
@@ -737,30 +768,12 @@ function(jobId, res) {
     res$status <- 400
     return(list(error = "jobId is required"))
   }
-  pg_conn <- get_postgres_conn()
-  if (is.null(pg_conn)) {
-    res$status <- 503
-    return(list(error = "PostgreSQL not available"))
-  }
-  on.exit({
-    if (!is.null(pg_conn)) dbDisconnect(pg_conn)
-  }, add = TRUE)
-  out <- tryCatch({
-    result <- dbGetQuery(pg_conn, "
-      SELECT data FROM processed_data 
-      WHERE job_id = $1 
-      ORDER BY row_index
-    ", params = list(jobId))
-    if (nrow(result) == 0) {
-      res$status <- 404
-      return(list(error = "Processed data not found in PostgreSQL"))
-    }
-    all_data <- lapply(result$data, function(x) jsonlite::fromJSON(x))
-    df <- dplyr::bind_rows(all_data)
-    list(jobId = jobId, data = df)
-  }, error = function(e) {
-    res$status <- 500
-    return(list(error = paste("Failed to retrieve data:", e$message)))
-  })
-  out
+
+  # Row-level processed data is no longer stored in PostgreSQL.
+  # We keep only summary/metadata in Postgres; full data is in Redis.
+  res$status <- 410  # Gone
+  list(
+    error  = "Row-level processed data is no longer stored in PostgreSQL. Use /result/redis to fetch processed data.",
+    jobId  = jobId
+  )
 }

@@ -19,7 +19,7 @@ const Schema = z.object({
     clientSecret: z.string().min(1),
     redirectUri: z.string().min(1)
   }),
-  multer: z.object({ dest: z.string().min(1) })
+  multer: z.object({ dest: z.string().min(1), save: z.string().min(1) })
 });
 
 export type AppConfig = z.infer<typeof Schema>;

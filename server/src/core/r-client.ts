@@ -35,12 +35,6 @@ export async function callRPreprocess(
 ): Promise<RPreprocessResponse> {
   const { processingJobId, datasetPath, filename, mimeType } = params;
 
-  if (mimeType !== 'text/csv') {
-    throw new REngineError(
-      `R engine currently supports only CSV. Got mimeType=${mimeType}`
-    );
-  }
-
   const baseUrl = cfg.rService.url;
   const endpoint = cfg.rService.processEndpoint ?? '/clean?jobId=';
 

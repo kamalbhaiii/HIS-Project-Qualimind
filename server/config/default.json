@@ -27,6 +27,7 @@
     "redirectUri": "https://your-api-domain.com/api/auth/google/callback"
   },
   "multer": {
-    "dest": "./raw/uploads"
+    "dest": "./raw/uploads",
+    "save": "./raw/processed"
   }
 }
