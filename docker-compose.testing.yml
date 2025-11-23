@@ -146,7 +146,6 @@ services:
     networks: [qm-net]
     profiles: ["backend", "frontend", "r", "infra"]
 
-  # ---------- pgAdmin (PostgreSQL dashboard) ----------
   pgadmin:
     image: dpage/pgadmin4
     container_name: qm-pgadmin-testing
@@ -155,14 +154,13 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@qualimind.testing
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
-      - "5050:80"
+      - "10050:80"
     depends_on:
       postgres:
         condition: service_healthy
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
 
-  # ---------- Redis Commander (Redis dashboard) ----------
   redis-commander:
     image: rediscommander/redis-commander:latest
     platform: linux/amd64
@@ -171,7 +169,7 @@ services:
     environment:
       REDIS_HOSTS: local:redis:6379
     ports:
-      - "5051:8081"
+      - "10051:8081"
     depends_on:
       redis:
         condition: service_healthy
