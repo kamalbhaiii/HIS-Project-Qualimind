@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
 
 import AuthPageShell from './AuthPageShell';
 import HeaderSection from '../organisms/HeaderSection';
@@ -7,13 +8,18 @@ import SocialLoginSection from '../organisms/SocialLoginSection';
 import SignInForm from '../organisms/SignInForm';
 import FooterLinks from '../organisms/FooterLinks';
 
+import { loginUser } from '../../services/modules/auth.api';
+import { saveAuth } from '../../lib/authStorage';
+import { useToast } from '../organisms/ToastProvider';
+
 const SignInPageTemplate = ({
   onGoogleSignIn,
-  onSignIn,
   onForgotPassword,
   onSignUp,
 }) => {
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -24,10 +30,26 @@ const SignInPageTemplate = ({
     }
   };
 
-  const handleSignIn = async (data) => {
+  const handleSignIn = async (credentials) => {
     setLoading(true);
     try {
-      await onSignIn(data); // { email, password }
+      const res = await loginUser({
+        email: credentials.email,
+        password: credentials.password,
+      });
+
+      const { user, token } = res;
+
+      saveAuth({ token, user });
+
+      showToast(`Welcome ${user?.name || ''}!`, 'success');
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      const apiMessage =
+        err?.response?.data?.message ||
+        'Failed to sign in. Please try again.';
+
+      showToast(apiMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -48,7 +70,6 @@ const SignInPageTemplate = ({
 
 SignInPageTemplate.propTypes = {
   onGoogleSignIn: PropTypes.func.isRequired,
-  onSignIn: PropTypes.func.isRequired,
   onForgotPassword: PropTypes.func.isRequired,
   onSignUp: PropTypes.func.isRequired,
 };

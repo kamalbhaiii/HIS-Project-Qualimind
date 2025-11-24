@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import DashboardLayout from '../templates/DashboardLayout';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
@@ -7,8 +8,12 @@ import FlexBox from '../atoms/FlexBox';
 import AccountInfoPanel from '../organisms/AccountInfoPanel';
 import PreferencesPanel from '../organisms/PreferencesPanel';
 import ApiTokenPanel from '../organisms/ApiTokenPanel';
+import { clearAuth } from '../../lib/authStorage';
+import { useToast } from '../organisms/ToastProvider';
 
 const SettingsPageTemplate = () => {
+  const navigate = useNavigate();
+  const { showToast } = useToast();
   // Mock user
   const user = {
     name: 'Alex Johnson',
@@ -23,9 +28,14 @@ const SettingsPageTemplate = () => {
   const mockToken = 'qm_test_1234567890abcdef1234567890abcdef';
 
   const handleLogout = () => {
-    // Later: call real logout / clear tokens
-    // eslint-disable-next-line no-console
-    console.log('Mock logout clicked');
+    try{
+      clearAuth();
+      showToast('You have been logged out.', 'success');
+      navigate('/sign-in', { replace: true });
+    }
+    catch(err){
+      showToast('Error during logout. Please try again.', 'error');
+    }
   };
 
   const handleDarkModeChange = (val) => {
