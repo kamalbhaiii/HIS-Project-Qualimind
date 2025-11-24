@@ -84,7 +84,7 @@ const DashboardLayout = ({ children }) => {
             flex: 1,
             p: 3,
             mt: 8, // space for AppBar
-            width: { md: `calc(100% - ${SIDEBAR_WIDTH}px)` },
+            width: { md: `calc(115% - ${SIDEBAR_WIDTH}px)` },
           }}
         >
           {children}

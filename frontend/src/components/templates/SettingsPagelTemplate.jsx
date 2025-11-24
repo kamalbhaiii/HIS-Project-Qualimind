@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import DashboardLayout from '../templates/DashboardLayout';
@@ -8,24 +8,25 @@ import FlexBox from '../atoms/FlexBox';
 import AccountInfoPanel from '../organisms/AccountInfoPanel';
 import PreferencesPanel from '../organisms/PreferencesPanel';
 import ApiTokenPanel from '../organisms/ApiTokenPanel';
-import { clearAuth } from '../../lib/authStorage';
+import { clearAuth, getToken, getUser } from '../../lib/authStorage';
 import { useToast } from '../organisms/ToastProvider';
 
 const SettingsPageTemplate = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  // Mock user
-  const user = {
-    name: 'Alex Johnson',
-    email: 'alex.johnson@example.com',
-  };
+  const [user, setUser] = useState('Loading...')
+  const [token, setToken] = useState('Loading...')
+
+  useEffect(()=>{
+    setUser(getUser())
+    setToken(getToken())
+  },[])
+
 
   // Mock local state for preferences
   const [darkMode, setDarkMode] = useState(false);
   const [compactMode, setCompactMode] = useState(true);
   const [defaultExportFormat, setDefaultExportFormat] = useState('csv');
-
-  const mockToken = 'qm_test_1234567890abcdef1234567890abcdef';
 
   const handleLogout = () => {
     try{
@@ -78,7 +79,7 @@ const SettingsPageTemplate = () => {
           />
         </FlexBox>
 
-        <ApiTokenPanel token={mockToken} />
+        <ApiTokenPanel token={token} />
       </FlexBox>
     </DashboardLayout>
   );

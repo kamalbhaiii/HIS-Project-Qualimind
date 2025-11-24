@@ -30,7 +30,7 @@ const ApiTokenPanel = ({ token }) => {
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
         Use this token to authenticate your scripts or tools with the
-        QualiMind API (mock-only value).
+        QualiMind API.
       </Typography>
 
       <FlexBox
@@ -42,20 +42,24 @@ const ApiTokenPanel = ({ token }) => {
         }}
       >
         <Box
-          sx={{
-            px: 2,
-            py: 1,
-            borderRadius: 1,
-            bgcolor: 'background.default',
-            border: (theme) => `1px dashed ${theme.palette.divider}`,
-            fontFamily: 'monospace',
-            fontSize: 13,
-            maxWidth: '100%',
-            overflowX: 'auto',
-          }}
-        >
-          {token}
-        </Box>
+  sx={{
+    px: 2,
+    py: 1,
+    borderRadius: 1,
+    bgcolor: 'background.default',
+    border: (theme) => `1px dashed ${theme.palette.divider}`,
+    fontFamily: 'monospace',
+    fontSize: 13,
+    width: '100%',          // 🔥 Force full width of parent
+    maxWidth: 300,          // 🔥 Prevent stretching
+    whiteSpace: 'nowrap',   // 🔥 No line breaks
+    overflow: 'hidden',     // 🔥 Hide full token
+    textOverflow: 'ellipsis', // 🔥 Show "..."
+  }}
+>
+  {token}
+</Box>
+
         <Button
           variant="outlined"
           color="primary"
@@ -65,11 +69,6 @@ const ApiTokenPanel = ({ token }) => {
           {copied ? 'Copied!' : 'Copy'}
         </Button>
       </FlexBox>
-
-      <Typography variant="caption" color="textSecondary" sx={{ mt: 1.5 }}>
-        In a real app, you would be able to rotate and revoke tokens. Here,
-        the value is static and for design only.
-      </Typography>
     </SurfaceCard>
   );
 };
