@@ -24,8 +24,8 @@
     "jwtExpiresIn": "1h"
   },
    "googleAuth": {
-    "clientId": "356828934230-1eg49caaspcqof3olvapop4n1hgcaktq.apps.googleusercontent.com",
-    "clientSecret": "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",
-    "redirectUri": "http://server:8000/api/auth/google/callback"
+    "clientId": "356828934230-our22n93i9ahho48q0b53dqmpirqjrbk.apps.googleusercontent.com",
+    "clientSecret": "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",
+    "redirectUri": "http://63.178.63.105:8000/api/auth/google/callback"
   }
 }
