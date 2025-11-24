@@ -15,7 +15,7 @@ import HeaderSection from '../organisms/HeaderSection';
 import SocialLoginSection from '../organisms/SocialLoginSection';
 import FooterLinks from '../organisms/FooterLinks';
 import SignInPageTemplate from './SigninPageTemplate';
-import SignUpPageTemplate from './SignupPageTemplate';
+import SignUpPageTemplate from './SignupPageTemplate.jsx';
 
 const TestPageTemplate = () => {
   // State for demonstrating button loading states and disabling

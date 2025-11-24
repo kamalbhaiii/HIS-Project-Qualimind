@@ -1,61 +1,82 @@
 import React, { useState } from 'react';
-import Container from '@mui/material/Container';
-import Paper from '@mui/material/Paper';
-import Box from '@mui/material/Box';
-import HeaderSection from '../organisms/HeaderSection';
-import SocialLoginSection from '../organisms/SocialLoginSection';
+import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
+
+import AuthPageShell from './AuthPageShell';
+import FlexBox from '../atoms/FlexBox';
 import InputFieldWithLabel from '../molecules/InputFieldWithLabel';
 import Button from '../atoms/CustomButton';
-import { EmailIcon, LockIcon } from '../atoms/Icon';
+import { EmailIcon, LockIcon, UserIcon } from '../atoms/Icon';
 import LinkText from '../molecules/LinkText';
 import Typography from '../atoms/CustomTypography';
-import PropTypes from 'prop-types';
 import SocialSignInButton from '../molecules/SocialSigninButton';
+
+import { signupUser } from '../../services/modules/auth.api';
+import { saveAuth } from '../../lib/authStorage';
+import { useToast } from '../organisms/ToastProvider';
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SignUpPageTemplate = ({
   onGoogleSignUp,
-  onSignUp,
   onSignInRedirect,
   loading: externalLoading = false,
 }) => {
   const [formData, setFormData] = useState({
+    name: '',
     email: '',
     password: '',
     confirmPassword: '',
   });
+
   const [errors, setErrors] = useState({
+    name: '',
     email: '',
     password: '',
     confirmPassword: '',
+    form: '',
   });
+
   const [touched, setTouched] = useState({
+    name: false,
     email: false,
     password: false,
     confirmPassword: false,
   });
+
   const [loading, setLoading] = useState(false);
 
-  const validateEmail = (email) =>
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
+  // -----------------------
+  // VALIDATION
+  // -----------------------
   const validate = () => {
-    const newErrors = { email: '', password: '', confirmPassword: '' };
+    const newErrors = {
+      name: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+      form: '',
+    };
 
-    // Email validation
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    }
+
     if (!formData.email) {
       newErrors.email = 'Email is required';
-    } else if (!validateEmail(formData.email)) {
+    } else if (!emailRegex.test(formData.email)) {
       newErrors.email = 'Invalid email address';
     }
 
-    // Password validation
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (formData.password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
     }
 
-    // Confirm password validation
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (formData.confirmPassword !== formData.password) {
@@ -64,13 +85,19 @@ const SignUpPageTemplate = ({
 
     setErrors(newErrors);
 
-    return !newErrors.email && !newErrors.password && !newErrors.confirmPassword;
+    return (
+      !newErrors.name &&
+      !newErrors.email &&
+      !newErrors.password &&
+      !newErrors.confirmPassword
+    );
   };
 
   const handleChange = (field) => (e) => {
     setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+
     if (touched[field]) {
-      setErrors((prev) => ({ ...prev, [field]: '' }));
+      setErrors((prev) => ({ ...prev, [field]: '', form: '' }));
     }
   };
 
@@ -79,15 +106,36 @@ const SignUpPageTemplate = ({
     validate();
   };
 
+  // -----------------------
+  // SUBMIT HANDLER
+  // -----------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (validate()) {
-      setLoading(true);
-      try {
-        await onSignUp({ email: formData.email, password: formData.password });
-      } finally {
-        setLoading(false);
-      }
+    if (!validate()) return;
+
+    setLoading(true);
+
+    try {
+      const res = await signupUser({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+      });
+
+      const { name } = res;
+
+      showToast(`You're in ${name}! Let's get started.`, 'success');
+
+      navigate('/sign-in', { replace: true });
+    } catch (err) {
+      const apiMessage =
+        err?.response?.data?.message ||
+        'Failed to sign up. Please try again.';
+
+      setErrors((prev) => ({ ...prev, form: apiMessage }));
+      showToast(apiMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -100,176 +148,170 @@ const SignUpPageTemplate = ({
     }
   };
 
+  const isBusy = loading || externalLoading;
+
   return (
-    <Container
-      maxWidth="xs"
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: 'background.default',
-        py: 4,
-      }}
-    >
-      <Paper
-        elevation={6}
-        sx={{
-          p: 4,
-          borderRadius: 3,
-          boxShadow: (theme) =>
-            `0 0 16px 2px ${
-              theme.palette.mode === 'light'
-                ? 'rgba(0,0,0,0.1)'
-                : 'rgba(255,255,255,0.1)'
-            }`,
-          width: '100%',
-          maxWidth: 400,
-        }}
-        role="main"
-        aria-label="Sign up to DataPrep Pro"
-      >
-        <Box sx={{ textAlign: 'center', mb: 3 }}>
-          {/* Icon from HeaderSection but you can import separately if needed */}
-          <Box
-            sx={{
-              width: 64,
-              height: 64,
-              mx: 'auto',
-              mb: 2,
-              bgcolor: 'background.paper',
-              borderRadius: '50%',
-              boxShadow: 3,
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-            aria-label="DataPrep Pro Logo"
-          >
-            {/* Using original logo icon from atoms/Icon */}
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              role="img"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" fill="#1976D2" />
-              <path fill="#fff" d="M9 7h2v10H9zM13 7h2v10h-2z" />
-            </svg>
-          </Box>
-          <Typography variant="h5" fontWeight={700} color="textPrimary">
-            Create your DataPrep Pro account
-          </Typography>
-          <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
-            Sign up to get started
-          </Typography>
-        </Box>
+    <AuthPageShell ariaLabel="Sign up to QualiMind">
+      {/* Header */}
+      <FlexBox sx={{ textAlign: 'center', mb: 3 }}>
+        <FlexBox
+          sx={{
+            width: 64,
+            height: 64,
+            mx: 'auto',
+            mb: 2,
+            bgcolor: 'background.paper',
+            borderRadius: '50%',
+            boxShadow: 3,
+            alignItems: 'center',
+            justifyContent: 'center',
+            display: 'flex',
+          }}
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="#1976D2" />
+            <path fill="#fff" d="M9 7h2v10H9zM13 7h2v10h-2z" />
+          </svg>
+        </FlexBox>
 
-          <SocialSignInButton />
-
-        <Typography variant="body2" color="textSecondary" sx={{ mb: 1, textAlign: 'center' }}>
-          OR
+        <Typography variant="h5" fontWeight={700}>
+          Create your QualiMind account
         </Typography>
 
-        {/* Form Start */}
-        <Box component="form" onSubmit={handleSubmit} noValidate>
+        <Typography variant="body2" color="textSecondary">
+          Sign up to get started
+        </Typography>
+      </FlexBox>
+
+      {/* Google Sign Up */}
+      <SocialSignInButton onClick={handleGoogleSignUp} loading={isBusy} />
+
+      <Typography
+        variant="body2"
+        textAlign="center"
+        sx={{ my: 1.5 }}
+        color="textSecondary"
+      >
+        OR
+      </Typography>
+
+      {/* Form */}
+      <FlexBox component="form" onSubmit={handleSubmit} noValidate>
+        
+        {/* Name */}
+        <InputFieldWithLabel
+          label="Full Name"
+          placeholder="John Doe"
+          value={formData.name}
+          onChange={handleChange('name')}
+          onBlur={handleBlur('name')}
+          error={Boolean(errors.name)}
+          helperText={errors.name}
+          icon={<UserIcon sx={{ mr: 1 }} />}
+          name="name"
+          id="name"
+          required
+          disabled={isBusy}
+        />
+
+        {/* Email */}
+        <FlexBox mt={2}>
           <InputFieldWithLabel
             label="Email"
             placeholder="you@example.com"
             value={formData.email}
             onChange={handleChange('email')}
+            onBlur={handleBlur('email')}
             error={Boolean(errors.email)}
             helperText={errors.email}
+            icon={<EmailIcon sx={{ mr: 1 }} />}
             type="email"
-            required
-            icon={<EmailIcon sx={{ mr: 1, color: 'action.active' }} />}
             name="email"
             id="email"
             autoComplete="email"
-            onBlur={handleBlur('email')}
-            disabled={loading || externalLoading}
+            required
+            disabled={isBusy}
           />
+        </FlexBox>
 
-          <Box mt={2}>
-            <InputFieldWithLabel
-              label="Password"
-              placeholder="Enter your password"
-              value={formData.password}
-              onChange={handleChange('password')}
-              error={Boolean(errors.password)}
-              helperText={errors.password}
-              type="password"
-              required
-              icon={<LockIcon sx={{ mr: 1, color: 'action.active' }} />}
-              name="password"
-              id="password"
-              autoComplete="new-password"
-              onBlur={handleBlur('password')}
-              disabled={loading || externalLoading}
-            />
-          </Box>
+        {/* Password */}
+        <FlexBox mt={2}>
+          <InputFieldWithLabel
+            label="Password"
+            placeholder="Enter your password"
+            value={formData.password}
+            onChange={handleChange('password')}
+            onBlur={handleBlur('password')}
+            error={Boolean(errors.password)}
+            helperText={errors.password}
+            icon={<LockIcon sx={{ mr: 1 }} />}
+            type="password"
+            name="password"
+            required
+            disabled={isBusy}
+          />
+        </FlexBox>
 
-          <Box mt={2}>
-            <InputFieldWithLabel
-              label="Confirm Password"
-              placeholder="Re-enter your password"
-              value={formData.confirmPassword}
-              onChange={handleChange('confirmPassword')}
-              error={Boolean(errors.confirmPassword)}
-              helperText={errors.confirmPassword}
-              type="password"
-              required
-              icon={<LockIcon sx={{ mr: 1, color: 'action.active' }} />}
-              name="confirmPassword"
-              id="confirmPassword"
-              autoComplete="new-password"
-              onBlur={handleBlur('confirmPassword')}
-              disabled={loading || externalLoading}
-            />
-          </Box>
+        {/* Confirm Password */}
+        <FlexBox mt={2}>
+          <InputFieldWithLabel
+            label="Confirm Password"
+            placeholder="Re-enter your password"
+            value={formData.confirmPassword}
+            onChange={handleChange('confirmPassword')}
+            onBlur={handleBlur('confirmPassword')}
+            error={Boolean(errors.confirmPassword)}
+            helperText={errors.confirmPassword}
+            icon={<LockIcon sx={{ mr: 1 }} />}
+            type="password"
+            name="confirmPassword"
+            required
+            disabled={isBusy}
+          />
+        </FlexBox>
 
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            color="primary"
-            disabled={loading || externalLoading}
-            sx={{ mt: 3, mb: 2 }}
-          >
-            {loading ? 'Signing up...' : 'Sign up'}
-          </Button>
-        </Box>
-
-        <Box
-          sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}
-          aria-label="Redirect to sign in page"
-        >
-          <Typography variant="body2" color="textSecondary">
-            Already have an account?
+        {/* Form-level error */}
+        {errors.form && (
+          <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+            {errors.form}
           </Typography>
-          <LinkText
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              onSignInRedirect();
-            }}
-            variant="body2"
-            color="primary"
-          >
-            Sign in
-          </LinkText>
-        </Box>
-      </Paper>
-    </Container>
+        )}
+
+        <Button
+          type="submit"
+          fullWidth
+          variant="contained"
+          disabled={isBusy}
+          sx={{ mt: 3 }}
+        >
+          {isBusy ? 'Signing up...' : 'Sign up'}
+        </Button>
+      </FlexBox>
+
+      {/* Footer */}
+      <FlexBox sx={{ justifyContent: 'center', mt: 2 }}>
+        <Typography variant="body2" color="textSecondary">
+          Already have an account?
+        </Typography>
+
+        <LinkText
+          href="#"
+          color="primary"
+          onClick={(e) => {
+            e.preventDefault();
+            onSignInRedirect();
+          }}
+          sx={{ ml: 1 }}
+        >
+          Sign in
+        </LinkText>
+      </FlexBox>
+    </AuthPageShell>
   );
 };
 
 SignUpPageTemplate.propTypes = {
   onGoogleSignUp: PropTypes.func.isRequired,
-  onSignUp: PropTypes.func.isRequired,
   onSignInRedirect: PropTypes.func.isRequired,
   loading: PropTypes.bool,
 };

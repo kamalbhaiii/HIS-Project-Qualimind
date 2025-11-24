@@ -6,7 +6,7 @@ import AppProviders from './providers/AppProviders';
 function RouterView() {
   const element = useRoutes([
     ...routes,
-    { path: "/", element: <Navigate to="/test" replace /> },
+    { path: "/", element: <Navigate to="/sign-in" replace /> },
     { path: '*', element: <div>404 – Not Found</div> },
   ]);
   return element;

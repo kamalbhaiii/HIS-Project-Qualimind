@@ -1,15 +1,25 @@
 import React, { useState } from 'react';
-import Container from '@mui/material/Container';
-import Paper from '@mui/material/Paper';
-import Box from '@mui/material/Box';
+import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
+
+import AuthPageShell from './AuthPageShell';
 import HeaderSection from '../organisms/HeaderSection';
 import SocialLoginSection from '../organisms/SocialLoginSection';
 import SignInForm from '../organisms/SignInForm';
 import FooterLinks from '../organisms/FooterLinks';
-import PropTypes from 'prop-types';
 
-const SignInPageTemplate = ({ onGoogleSignIn, onSignIn, onForgotPassword, onSignUp }) => {
+import { loginUser } from '../../services/modules/auth.api';
+import { saveAuth } from '../../lib/authStorage';
+import { useToast } from '../organisms/ToastProvider';
+
+const SignInPageTemplate = ({
+  onGoogleSignIn,
+  onForgotPassword,
+  onSignUp,
+}) => {
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -20,51 +30,46 @@ const SignInPageTemplate = ({ onGoogleSignIn, onSignIn, onForgotPassword, onSign
     }
   };
 
-  const handleSignIn = async (data) => {
+  const handleSignIn = async (credentials) => {
     setLoading(true);
     try {
-      await onSignIn(data);
+      const res = await loginUser({
+        email: credentials.email,
+        password: credentials.password,
+      });
+
+      const { user, token } = res;
+
+      saveAuth({ token, user });
+
+      showToast(`Welcome ${user?.name || ''}!`, 'success');
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      const apiMessage =
+        err?.response?.data?.message ||
+        'Failed to sign in. Please try again.';
+
+      showToast(apiMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Container
-      maxWidth="xs"
-      sx={{
-        height: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: 'background.default',
-      }}
-    >
-      <Paper
-        elevation={6}
-        sx={{
-          p: 4,
-          borderRadius: 3,
-          boxShadow: (theme) =>
-            `0 0 16px 2px ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
-          width: '100%',
-          maxWidth: 400,
-        }}
-        role="main"
-        aria-label="Sign in to Qualimind"
-      >
-        <HeaderSection />
-        <SocialLoginSection onGoogleSignIn={handleGoogleSignIn} loading={loading} />
-        <SignInForm onSubmit={handleSignIn} loading={loading} />
-        <FooterLinks onForgotPassword={onForgotPassword} onSignUp={onSignUp} />
-      </Paper>
-    </Container>
+    <AuthPageShell ariaLabel="Sign in to QualiMind">
+      <HeaderSection />
+      <SocialLoginSection
+        onGoogleSignIn={handleGoogleSignIn}
+        loading={loading}
+      />
+      <SignInForm onSubmit={handleSignIn} loading={loading} />
+      <FooterLinks onForgotPassword={onForgotPassword} onSignUp={onSignUp} />
+    </AuthPageShell>
   );
 };
 
 SignInPageTemplate.propTypes = {
   onGoogleSignIn: PropTypes.func.isRequired,
-  onSignIn: PropTypes.func.isRequired,
   onForgotPassword: PropTypes.func.isRequired,
   onSignUp: PropTypes.func.isRequired,
 };

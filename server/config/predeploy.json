@@ -7,6 +7,9 @@
     "windowMs": 60000,
     "max": 100
   },
+  "frontend":{
+    "url": "http://localhost:3000"
+  },
   "rService": {
     "url": "http://r-engine:8000"
   },

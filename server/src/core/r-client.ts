@@ -5,7 +5,7 @@ import cfg from '@config/index';
 
 export interface RPreprocessResponse {
   jobId: string;
-  status: string;
+  status: string | string[] | undefined;
   rows: number;
   originalRows?: number;
   storage?: {
@@ -25,30 +25,25 @@ export class REngineError extends Error {
 
 interface CallRPreprocessParams {
   processingJobId: string;
-  datasetPath: string;     // Node’s file path (e.g. uploads/raw/...)
-  filename: string;        // original filename
+  datasetPath: string;
+  filename: string;
   mimeType: string;
 }
 
-export async function callRPreprocess(params: CallRPreprocessParams): Promise<RPreprocessResponse> {
+export async function callRPreprocess(
+  params: CallRPreprocessParams
+): Promise<RPreprocessResponse> {
   const { processingJobId, datasetPath, filename, mimeType } = params;
 
-  // For now, we only support CSV (R’s /process is designed around tabular data)
-  if (mimeType !== 'text/csv') {
-    throw new REngineError(`R engine currently supports only CSV. Got mimeType=${mimeType}`);
-  }
-
   const baseUrl = cfg.rService.url;
-  const endpoint = cfg.rService.processEndpoint  ?? '/process';
+  const endpoint = cfg.rService.processEndpoint ?? '/clean?jobId=';
 
   if (!baseUrl) {
     throw new REngineError('rEngine.baseUrl is not configured');
   }
 
-  // 1) Read CSV file
   const csvContent = await fs.readFile(datasetPath, 'utf-8');
 
-  // 2) Parse into array of objects (header row → keys)
   const records = parse(csvContent, {
     columns: true,
     skip_empty_lines: true,
@@ -58,33 +53,82 @@ export async function callRPreprocess(params: CallRPreprocessParams): Promise<RP
     throw new REngineError('Dataset appears to be empty after parsing');
   }
 
-  // 3) Build payload for R /process
   const payload = {
     jobId: processingJobId,
     filename,
     data: records,
   };
 
-  const url = `${baseUrl.replace(/\/$/, '')}${endpoint}`;
+  const url = `${baseUrl.replace(/\/$/, '')}${endpoint}${encodeURIComponent(
+    processingJobId
+  )}`;
 
   try {
     const res = await axios.post<RPreprocessResponse>(url, payload, {
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 5 * 60 * 1000, // 5 minutes, adjust as needed
+      timeout: 5 * 60 * 1000,
     });
 
-    const body = res.data;
+    const body = res.data || ({} as RPreprocessResponse);
 
-    if (!body.jobId || body.jobId !== processingJobId) {
-      // Should match what we sent; if not, treat as error
+    // ----- jobId sanity check (soft) -----
+    const expectedJobId = String(processingJobId).trim();
+    const returnedJobId = String(body.jobId ?? '').trim();
+
+    if (!returnedJobId) {
+      console.warn(
+        `R engine response missing jobId field for processingJobId=${expectedJobId}`
+      );
+    } else if (returnedJobId !== expectedJobId) {
+      console.warn(
+        `R engine returned jobId=${returnedJobId} (len=${returnedJobId.length}), expected ${expectedJobId} (len=${expectedJobId.length})`
+      );
+      // no longer throwing here
+    }
+
+    // ----- status normalisation -----
+    let statusRaw: any = body.status;
+    let statusStr: string | null = null;
+
+    if (Array.isArray(statusRaw)) {
+      statusStr = statusRaw.length > 0 ? String(statusRaw[0]) : null;
+    } else if (typeof statusRaw === 'string') {
+      statusStr = statusRaw;
+    } else if (statusRaw != null) {
+      statusStr = String(statusRaw);
+    }
+
+    const normalizedStatus = statusStr
+      ? statusStr.trim().toLowerCase()
+      : null;
+
+    // Only treat as error if status is present and *not* a success status
+    if (
+      normalizedStatus &&
+      normalizedStatus !== 'cleaned' &&
+      normalizedStatus !== 'processed'
+    ) {
       throw new REngineError(
-        `R engine returned jobId=${body.jobId}, expected ${processingJobId}`
+        `R engine preprocessing failed with status=${statusStr}`
       );
     }
 
-    if (body.storage && body.storage.redis !== 'success') {
+    let redisRaw: any = body.storage?.redis;
+    let redisStr: string | null = null;
+
+    if (Array.isArray(redisRaw)) {
+      redisStr = redisRaw.length > 0 ? String(redisRaw[0]) : null;
+    } else if (typeof redisRaw === 'string') {
+      redisStr = redisRaw;
+    } else if (redisRaw != null) {
+      redisStr = String(redisRaw);
+    }
+
+    const redisNorm = redisStr ? redisStr.trim().toLowerCase() : null;
+
+    if (redisNorm && redisNorm !== 'success') {
       throw new REngineError('R engine failed to store result in Redis');
     }
 

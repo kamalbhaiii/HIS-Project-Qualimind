@@ -23,7 +23,14 @@ const storage = multer.diskStorage({
 export const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    const allowed = ['text/csv', 'text/plain', 'application/json'];
+    const allowed = [
+      'text/csv',                                     // CSV
+      'application/vnd.ms-excel',                     // XLS
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // XLSX
+      'application/json',                             // JSON
+      'text/plain',                                   // if you still want .txt
+    ];
+
     if (!allowed.includes(file.mimetype)) {
       return cb(new Error('Unsupported file type'));
     }
