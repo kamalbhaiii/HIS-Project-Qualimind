@@ -10,12 +10,6 @@
   "rService": {
     "url": "http://r-engine:8000"
   },
-  "redis": {
-    "url": "redis://redis:6379"
-  },
-  "database": {
-    "url": "postgresql://postgres:postgres@postgres:5432/qualimind-development"
-  },
   "security": {
     "jwtSecret": "thisisdevelopmentenvironment",
     "jwtExpiresIn": "1h"

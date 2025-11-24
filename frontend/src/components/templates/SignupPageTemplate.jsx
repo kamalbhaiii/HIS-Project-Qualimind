@@ -1,36 +1,44 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
 
 import AuthPageShell from './AuthPageShell';
 import FlexBox from '../atoms/FlexBox';
 import InputFieldWithLabel from '../molecules/InputFieldWithLabel';
 import Button from '../atoms/CustomButton';
-import { EmailIcon, LockIcon } from '../atoms/Icon';
+import { EmailIcon, LockIcon, UserIcon } from '../atoms/Icon';
 import LinkText from '../molecules/LinkText';
 import Typography from '../atoms/CustomTypography';
 import SocialSignInButton from '../molecules/SocialSigninButton';
+
+import { signupUser } from '../../services/modules/auth.api';
+import { saveAuth } from '../../lib/authStorage';
+import { useToast } from '../organisms/ToastProvider';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SignUpPageTemplate = ({
   onGoogleSignUp,
-  onSignUp,
   onSignInRedirect,
   loading: externalLoading = false,
 }) => {
   const [formData, setFormData] = useState({
+    name: '',
     email: '',
     password: '',
     confirmPassword: '',
   });
 
   const [errors, setErrors] = useState({
+    name: '',
     email: '',
     password: '',
     confirmPassword: '',
+    form: '',
   });
 
   const [touched, setTouched] = useState({
+    name: false,
     email: false,
     password: false,
     confirmPassword: false,
@@ -38,12 +46,24 @@ const SignUpPageTemplate = ({
 
   const [loading, setLoading] = useState(false);
 
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+
+  // -----------------------
+  // VALIDATION
+  // -----------------------
   const validate = () => {
     const newErrors = {
+      name: '',
       email: '',
       password: '',
       confirmPassword: '',
+      form: '',
     };
+
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    }
 
     if (!formData.email) {
       newErrors.email = 'Email is required';
@@ -65,13 +85,19 @@ const SignUpPageTemplate = ({
 
     setErrors(newErrors);
 
-    return !newErrors.email && !newErrors.password && !newErrors.confirmPassword;
+    return (
+      !newErrors.name &&
+      !newErrors.email &&
+      !newErrors.password &&
+      !newErrors.confirmPassword
+    );
   };
 
   const handleChange = (field) => (e) => {
     setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+
     if (touched[field]) {
-      setErrors((prev) => ({ ...prev, [field]: '' }));
+      setErrors((prev) => ({ ...prev, [field]: '', form: '' }));
     }
   };
 
@@ -80,18 +106,36 @@ const SignUpPageTemplate = ({
     validate();
   };
 
+  // -----------------------
+  // SUBMIT HANDLER
+  // -----------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (validate()) {
-      setLoading(true);
-      try {
-        await onSignUp({
-          email: formData.email,
-          password: formData.password,
-        });
-      } finally {
-        setLoading(false);
-      }
+    if (!validate()) return;
+
+    setLoading(true);
+
+    try {
+      const res = await signupUser({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+      });
+
+      const { name } = res;
+
+      showToast(`You're in ${name}! Let's get started.`, 'success');
+
+      navigate('/sign-in', { replace: true });
+    } catch (err) {
+      const apiMessage =
+        err?.response?.data?.message ||
+        'Failed to sign up. Please try again.';
+
+      setErrors((prev) => ({ ...prev, form: apiMessage }));
+      showToast(apiMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -119,129 +163,145 @@ const SignUpPageTemplate = ({
             bgcolor: 'background.paper',
             borderRadius: '50%',
             boxShadow: 3,
-            display: 'flex',
-            justifyContent: 'center',
             alignItems: 'center',
+            justifyContent: 'center',
+            display: 'flex',
           }}
-          aria-label="QualiMind Logo"
         >
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            role="img"
-            aria-hidden="true"
-          >
+          <svg width="32" height="32" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="10" fill="#1976D2" />
             <path fill="#fff" d="M9 7h2v10H9zM13 7h2v10h-2z" />
           </svg>
         </FlexBox>
-        <Typography variant="h5" fontWeight={700} color="textPrimary">
+
+        <Typography variant="h5" fontWeight={700}>
           Create your QualiMind account
         </Typography>
-        <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
+
+        <Typography variant="body2" color="textSecondary">
           Sign up to get started
         </Typography>
       </FlexBox>
 
-      {/* Social sign up */}
+      {/* Google Sign Up */}
       <SocialSignInButton onClick={handleGoogleSignUp} loading={isBusy} />
 
       <Typography
         variant="body2"
+        textAlign="center"
+        sx={{ my: 1.5 }}
         color="textSecondary"
-        sx={{ mb: 1, textAlign: 'center' }}
       >
         OR
       </Typography>
 
       {/* Form */}
       <FlexBox component="form" onSubmit={handleSubmit} noValidate>
+        
+        {/* Name */}
         <InputFieldWithLabel
-          label="Email"
-          placeholder="you@example.com"
-          value={formData.email}
-          onChange={handleChange('email')}
-          error={Boolean(errors.email)}
-          helperText={errors.email}
-          type="email"
+          label="Full Name"
+          placeholder="John Doe"
+          value={formData.name}
+          onChange={handleChange('name')}
+          onBlur={handleBlur('name')}
+          error={Boolean(errors.name)}
+          helperText={errors.name}
+          icon={<UserIcon sx={{ mr: 1 }} />}
+          name="name"
+          id="name"
           required
-          icon={<EmailIcon sx={{ mr: 1, color: 'action.active' }} />}
-          name="email"
-          id="email"
-          autoComplete="email"
-          onBlur={handleBlur('email')}
           disabled={isBusy}
         />
 
+        {/* Email */}
+        <FlexBox mt={2}>
+          <InputFieldWithLabel
+            label="Email"
+            placeholder="you@example.com"
+            value={formData.email}
+            onChange={handleChange('email')}
+            onBlur={handleBlur('email')}
+            error={Boolean(errors.email)}
+            helperText={errors.email}
+            icon={<EmailIcon sx={{ mr: 1 }} />}
+            type="email"
+            name="email"
+            id="email"
+            autoComplete="email"
+            required
+            disabled={isBusy}
+          />
+        </FlexBox>
+
+        {/* Password */}
         <FlexBox mt={2}>
           <InputFieldWithLabel
             label="Password"
             placeholder="Enter your password"
             value={formData.password}
             onChange={handleChange('password')}
+            onBlur={handleBlur('password')}
             error={Boolean(errors.password)}
             helperText={errors.password}
+            icon={<LockIcon sx={{ mr: 1 }} />}
             type="password"
-            required
-            icon={<LockIcon sx={{ mr: 1, color: 'action.active' }} />}
             name="password"
-            id="password"
-            autoComplete="new-password"
-            onBlur={handleBlur('password')}
+            required
             disabled={isBusy}
           />
         </FlexBox>
 
+        {/* Confirm Password */}
         <FlexBox mt={2}>
           <InputFieldWithLabel
             label="Confirm Password"
             placeholder="Re-enter your password"
             value={formData.confirmPassword}
             onChange={handleChange('confirmPassword')}
+            onBlur={handleBlur('confirmPassword')}
             error={Boolean(errors.confirmPassword)}
             helperText={errors.confirmPassword}
+            icon={<LockIcon sx={{ mr: 1 }} />}
             type="password"
-            required
-            icon={<LockIcon sx={{ mr: 1, color: 'action.active' }} />}
             name="confirmPassword"
-            id="confirmPassword"
-            autoComplete="new-password"
-            onBlur={handleBlur('confirmPassword')}
+            required
             disabled={isBusy}
           />
         </FlexBox>
+
+        {/* Form-level error */}
+        {errors.form && (
+          <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+            {errors.form}
+          </Typography>
+        )}
 
         <Button
           type="submit"
           fullWidth
           variant="contained"
-          color="primary"
           disabled={isBusy}
-          sx={{ mt: 3, mb: 2 }}
+          sx={{ mt: 3 }}
         >
           {isBusy ? 'Signing up...' : 'Sign up'}
         </Button>
       </FlexBox>
 
       {/* Footer */}
-      <FlexBox
-        sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}
-        aria-label="Redirect to sign in page"
-      >
+      <FlexBox sx={{ justifyContent: 'center', mt: 2 }}>
         <Typography variant="body2" color="textSecondary">
           Already have an account?
         </Typography>
+
         <LinkText
           href="#"
+          color="primary"
           onClick={(e) => {
             e.preventDefault();
             onSignInRedirect();
           }}
-          variant="body2"
-          color="primary"
+          sx={{ ml: 1 }}
         >
           Sign in
         </LinkText>
@@ -252,7 +312,6 @@ const SignUpPageTemplate = ({
 
 SignUpPageTemplate.propTypes = {
   onGoogleSignUp: PropTypes.func.isRequired,
-  onSignUp: PropTypes.func.isRequired, // { email, password }
   onSignInRedirect: PropTypes.func.isRequired,
   loading: PropTypes.bool,
 };

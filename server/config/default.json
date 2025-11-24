@@ -12,10 +12,10 @@
     "processEndpoint": "/clean?jobId="
   },
   "redis": {
-    "url": "redis://redis:6379"
+    "url": "rediss://default:AXocAAIncDJlNmQ5YWQ4ZTEzMjY0MzFmOTU1YjFkY2Q1NTM0Y2Q0ZnAyMzEyNjA@many-manatee-31260.upstash.io:6379"
   },
   "database": {
-    "url": "postgresql://postgres:postgres@postgres:5432/qualimind?schema=public"
+    "url": "postgresql://neondb_owner:npg_UYT08XKvCGLF@ep-dry-river-ag2v6cgd-pooler.c-2.eu-central-1.aws.neon.tech/qualimind-development?sslmode=require&channel_binding=require"
   },
   "security": {
     "jwtSecret": "dev-secret-change-me",
