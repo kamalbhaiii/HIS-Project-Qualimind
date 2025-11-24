@@ -7,6 +7,7 @@ const Schema = z.object({
     port: z.number(),
     env: z.string()
   }),
+  frontend: z.object({ url: z.string() }),
   database: z.object({
     url: z.string().startsWith('postgresql://')
   }),
@@ -32,7 +33,8 @@ const cfg = Schema.parse({
   rateLimit: config.get('rateLimit'),
   security: config.get('security'),
   googleAuth: config.get('googleAuth'),
-  multer: config.get('multer')
+  multer: config.get('multer'),
+  frontend: config.get('frontend')
 });
 
 export default cfg;

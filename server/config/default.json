@@ -3,6 +3,9 @@
     "port": 5000,
     "env": "development"
   },
+  "frontend":{
+    "url": "http://localhost:5173"
+  },
   "rateLimit": {
     "windowMs": 60000,
     "max": 100
