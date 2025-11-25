@@ -22,8 +22,8 @@
     "prisma:migrate:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate dev",
     "prisma:generate:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js generate",
     "prisma:migrate:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate dev",
-    "prisma:deploy:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js migrate deploy",
-    "prisma:deploy:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate deploy",
+    "prisma:deploy:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js migrate dev",
+    "prisma:deploy:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate dev",
     "prisma:deploy:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate deploy"
   },
   "keywords": [],
