@@ -12,6 +12,7 @@ import InputFieldWithLabel from '../../molecules/InputFieldWithLabel';
 
 import { uploadDataset } from '../../../services/modules/dataset.api';
 import { useToast } from '../../organisms/ToastProvider';
+import { excelToCsv, jsonFileToCsv } from '../../../lib/fileConverters';
 
 const MOCK_TASKS = [
   { key: 'handle_missing_categoricals', label: 'Handle missing categorical values' },
@@ -72,40 +73,54 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
   const { showToast } = useToast();
 
   // When file changes, set default dataset name and detect columns
-  useEffect(() => {
-    if (!file) return;
+useEffect(() => {
+  if (!file) return;
 
-    // default dataset name from file name (without extension)
-    const rawName = file.name || 'dataset.csv';
-    const dotIndex = rawName.lastIndexOf('.');
-    const baseName = dotIndex > 0 ? rawName.slice(0, dotIndex) : rawName;
-    setDatasetName(baseName);
+  const rawName = file.name || 'dataset';
+  const lower = rawName.toLowerCase();
 
-    const fileName = rawName.toLowerCase();
-    if (fileName.endsWith('.csv')) {
-      Papa.parse(file, {
-        header: true,
-        preview: 1,
-        skipEmptyLines: true,
-        complete: (results) => {
-          const fields = results.meta?.fields || [];
-          setColumns(fields);
-          setSelectedColumns(fields); // default: keep all
-        },
-        error: (error) => {
-          console.error('CSV parse error:', error);
-          showToast('Failed to read columns from CSV.', 'error');
-        },
-      });
-    } else {
+  // default dataset name (you already have this logic)
+  const dotIndex = rawName.lastIndexOf('.');
+  const baseName = dotIndex > 0 ? rawName.slice(0, dotIndex) : rawName;
+  setDatasetName(baseName);
+
+  const setFromCsvString = (csvString) => {
+    const parsed = Papa.parse(csvString, {
+      header: true,
+      preview: 1,
+      skipEmptyLines: true,
+    });
+    const fields = parsed.meta?.fields || [];
+    setColumns(fields);
+    setSelectedColumns(fields); // default: all selected
+  };
+
+  const detectColumns = async () => {
+    try {
+      if (lower.endsWith('.csv')) {
+        const text = await file.text();
+        setFromCsvString(text);
+      } else if (lower.endsWith('.json')) {
+        const csvString = await jsonFileToCsv(file);
+        setFromCsvString(csvString);
+      } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+        const csvString = await excelToCsv(file);
+        setFromCsvString(csvString);
+      } else {
+        setColumns([]);
+        setSelectedColumns([]);
+        showToast('Unsupported file format.', 'warning');
+      }
+    } catch (error) {
+      console.error('Column detection failed:', error);
       setColumns([]);
       setSelectedColumns([]);
-      showToast(
-        'Column detection is currently only supported for CSV files.',
-        'info'
-      );
+      showToast('Failed to detect columns from file.', 'error');
     }
-  }, [file]);
+  };
+
+  detectColumns();
+}, [file]);
 
   const handleToggleColumn = (col) => {
     setSelectedColumns((prev) =>
@@ -142,47 +157,85 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
     }
   };
 
-  const handleUpload = async () => {
-    if (!file) return;
+const handleUpload = async () => {
+  if (!file) return;
 
-    setUploading(true);
+  setUploading(true);
 
-    try {
-      const finalName = datasetName.trim() || file.name || 'dataset.csv';
-      let fileToUpload = file;
+  try {
+    const finalName = (datasetName.trim() || "dataset") + ".csv";
 
-      const lowerName = (file.name || '').toLowerCase();
-      const isCsv = lowerName.endsWith('.csv');
+    const lowerName = file.name.toLowerCase();
 
-      if (isCsv && selectedColumns.length > 0) {
-        // 🔥 Build a new CSV file with only selected columns
-        fileToUpload = await buildFilteredCsvFile(file, selectedColumns);
-      } else {
-        showToast(
-          'Column filtering is only applied for CSV files. Uploading original file.',
-          'info'
-        );
-      }
+    let csvString;
 
-      // Note: selectedTasks are not yet sent to API (API currently accepts only file + name)
-      const res = await uploadDataset({
-        file: fileToUpload,
-        name: finalName,
-      });
-
-      showToast('Dataset uploaded successfully.', 'success');
-
-      if (onUploaded) {
-        onUploaded(res);
-      }
-      onClose();
-    } catch (err) {
-      console.error(err);
-      showToast('Failed to upload dataset.', 'error');
-    } finally {
-      setUploading(false);
+    if (lowerName.endsWith(".csv")) {
+      // Already CSV → skip to next step
+      csvString = await file.text();
     }
-  };
+
+    else if (lowerName.endsWith(".json")) {
+      // Convert JSON → CSV
+      csvString = await jsonFileToCsv(file);
+    }
+
+    else if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
+      // Convert Excel → CSV
+      csvString = await excelToCsv(file);
+    }
+
+    else {
+      showToast("Unsupported file format.", "error");
+      return;
+    }
+
+    // Parse CSV to apply column filtering
+    const parsed = Papa.parse(csvString, {
+      header: true,
+      skipEmptyLines: true,
+    });
+
+    const rows = parsed.data || [];
+
+    const filteredRows = rows.map((row) => {
+      const newRow = {};
+      selectedColumns.forEach((col) => {
+        newRow[col] = row[col];
+      });
+      return newRow;
+    });
+
+    const finalCsvString = Papa.unparse({
+      fields: selectedColumns,
+      data: filteredRows,
+    });
+
+    // Build final renamed CSV file
+    const csvFile = new File(
+      [finalCsvString],
+      finalName,
+      { type: "text/csv" }
+    );
+
+    // Upload to backend
+    const res = await uploadDataset({
+      file: csvFile,
+      name: finalName,
+      preprocessingTasks: selectedTasks
+    });
+
+    showToast("Dataset uploaded successfully!", "success");
+
+    if (onUploaded) onUploaded(res);
+
+    onClose();
+  } catch (err) {
+    console.error(err);
+    showToast("File conversion failed.", "error");
+  } finally {
+    setUploading(false);
+  }
+};
 
   const title =
     step === 0 ? 'Name your dataset & select columns' : 'Choose preprocessing tasks';
