@@ -12,3 +12,9 @@ export const uploadDataset = async ({file, name, preprocessingTasks}) => {
 
   return res.data;
 };
+
+export const getDatasets = async () => {
+  const res = await api.get('/datasets')
+
+  return res.data;
+}

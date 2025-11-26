@@ -1,82 +1,140 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import DashboardLayout from './DashboardLayout';
 import FlexBox from '../atoms/FlexBox';
-import DashboardStatsOverview from '../organisms/DashboardStatsOverview'; // optional reuse
+import DashboardStatsOverview from '../organisms/DashboardStatsOverview';
 import DatasetListTable from '../organisms/DatasetListTable';
 import DatasetUploadPanel from '../organisms/DatasetUploadPanel';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
-import { useNavigate } from 'react-router-dom';
+import {getDatasets} from '../../services/modules/dataset.api'
+import { useToast } from '../organisms/ToastProvider';
 
 const DatasetsPageTemplate = () => {
-  // Mock stats just for visual consistency (can be removed if you want)
-  const stats = {
-    processedDatasets: 12,
-    runningJobs: 3,
-    failedJobs24h: 1,
-  };
-
-  const mockDatasets = [
-    {
-      id: 'ds_001',
-      name: 'customer_churn.csv',
-      size: '2.4 MB',
-      uploadedAt: '2025-11-20',
-      lastJobStatus: 'SUCCESS',
-      lastJobId: 'job_001',
-    },
-    {
-      id: 'ds_002',
-      name: 'survey_responses.csv',
-      size: '1.2 MB',
-      uploadedAt: '2025-11-22',
-      lastJobStatus: 'RUNNING',
-      lastJobId: 'job_002',
-    },
-    {
-      id: 'ds_003',
-      name: 'transactions_2025_q3.csv',
-      size: '5.8 MB',
-      uploadedAt: '2025-11-23',
-      lastJobStatus: 'FAILED',
-      lastJobId: 'job_003',
-    },
-    {
-      id: 'ds_004',
-      name: 'marketing_leads.csv',
-      size: '860 KB',
-      uploadedAt: '2025-11-21',
-      lastJobStatus: null,
-      lastJobId: null,
-    },
-  ];
+  const [datasets, setDatasets] = React.useState([]); 
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
 
   const navigate = useNavigate();
+  const {showToast} = useToast();
 
-  const handleMockViewDataset = (dataset) => {
-    navigate(`/dataset-view`);
+  const fetchDatasets = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await getDatasets();
+
+      const data = await res
+      setDatasets(data);
+    } catch (err) {
+      showToast(err.message || 'Failed to fetch datasets', 'error')
+      setError(err.message || 'Failed to fetch datasets');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchDatasets();
+  }, [fetchDatasets]);
+
+  const formatBytes = (bytes) => {
+    if (!Number.isFinite(bytes)) return '-';
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const value = bytes / Math.pow(k, i);
+    return `${value.toFixed(1)} ${sizes[i]}`;
   };
 
-  const handleMockStartJob = (dataset) => {
-    // For now, just log – later this will open job creation / trigger API
-    // eslint-disable-next-line no-console
-    console.log('Start job for dataset (mock):', dataset);
+  const formatDate = (isoString) => {
+    if (!isoString) return '-';
+    const d = new Date(isoString);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toISOString().slice(0, 10); // YYYY-MM-DD
   };
 
-  const handleMockUpload = (files) => {
-    // For now, just log
+  // Map API datasets into what DatasetListTable expects
+  const tableDatasets = datasets.map((d) => ({
+    id: d.id,
+    name: d.name || d.originalName,
+    size: formatBytes(d.sizeBytes),
+    uploadedAt: formatDate(d.createdAt),
+    lastJobStatus: d.job?.status || null,
+    lastJobId: d.job?.id || null,
+  }));
+
+  // Derive stats from real data
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  const stats = {
+    processedDatasets: datasets.filter((d) => d.job?.status === 'SUCCESS').length,
+    runningJobs: datasets.filter((d) => d.job?.status === 'RUNNING').length,
+    pendingJobs: datasets.filter((d) => d.job?.status === 'PENDING').length,
+    failedJobs24h: datasets.filter((d) => {
+      if (d.job?.status !== 'FAILED' || !d.job?.completedAt) return false;
+      const completedAt = new Date(d.job.completedAt).getTime();
+      return now - completedAt <= ONE_DAY_MS;
+    }).length,
+  };
+
+  // --- Handlers --------------------------------------------------------
+
+  const handleViewDataset = (dataset) => {
+    // Navigate to a dataset view page; adjust route if needed
+    navigate(`/dataset-view/${dataset.id}`);
+  };
+
+  const handleStartJob = (dataset) => {
+    // Here you can call an API to create a new processing job for the dataset
     // eslint-disable-next-line no-console
-    console.log('Mock upload files:', files);
+    console.log('Start job for dataset:', dataset);
+  };
+
+  const handleUpload = async (files) => {
+    if (!files || !files.length) return;
+
+    const file = files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', file.name);
+
+    try {
+      const res = await fetch('/api/datasets', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include', // adjust if you use tokens instead of cookies
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to upload dataset');
+      }
+
+      // Refresh list after successful upload
+      await fetchDatasets();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      setError(err.message || 'Failed to upload dataset');
+    }
   };
 
   return (
     <DashboardLayout activeKey="datasets">
-      {/* Optional: You can show high-level stats at top or remove this */}
       <DashboardStatsOverview stats={stats} />
 
       <DashboardSectionHeader
         title="Datasets"
         subtitle="Manage your uploaded datasets and preprocessing runs"
       />
+
+      {error && (
+        <div style={{ marginBottom: 16, color: 'red' }}>
+          {error}
+        </div>
+      )}
 
       <FlexBox
         sx={{
@@ -85,12 +143,17 @@ const DatasetsPageTemplate = () => {
           gap: 2,
         }}
       >
-        <DatasetListTable
-          datasets={mockDatasets}
-          onViewDataset={handleMockViewDataset}
-          onStartJob={handleMockStartJob}
-        />
-        <DatasetUploadPanel onMockUpload={handleMockUpload} />
+        {loading ? (
+          <div>Loading datasets...</div>
+        ) : (
+          <DatasetListTable
+            datasets={tableDatasets}
+            onViewDataset={handleViewDataset}
+            onStartJob={handleStartJob}
+          />
+        )}
+
+        <DatasetUploadPanel onMockUpload={handleUpload} />
       </FlexBox>
     </DashboardLayout>
   );

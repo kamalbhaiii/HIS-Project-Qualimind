@@ -5,7 +5,7 @@ import StatCard from '../../molecules/StatCard';
 import DashboardSectionHeader from '../../molecules/DashboardSectionHeader';
 
 const DashboardStatsOverview = ({ stats }) => {
-  const { processedDatasets, runningJobs, failedJobs24h } = stats;
+  const { processedDatasets, runningJobs, failedJobs24h, pendingJobs } = stats;
 
   return (
     <>
@@ -26,6 +26,13 @@ const DashboardStatsOverview = ({ stats }) => {
             label="Running jobs"
             value={runningJobs}
             helperText="Currently in progress"
+          />
+        </Grid>
+                <Grid item xs={12} md={4}>
+          <StatCard
+            label="Pending jobs (24h)"
+            value={pendingJobs}
+            helperText="Waiting to process"
           />
         </Grid>
         <Grid item xs={12} md={4}>
