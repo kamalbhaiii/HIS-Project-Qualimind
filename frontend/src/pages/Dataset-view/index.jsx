@@ -2,8 +2,9 @@ import DatasetViewPageTemplate from "../../components/templates/DatasetViewPageT
 import ProtectedRoute from "../../routes/ProtectedRoute";
 
 export default function DatasetView() {
-  return 
-  <ProtectedRoute>
+  return (
+      <ProtectedRoute>
     <DatasetViewPageTemplate />
   </ProtectedRoute>
+  )
 }
