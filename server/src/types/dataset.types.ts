@@ -14,6 +14,18 @@ export interface DatasetUploadDTO {
   name?: string;
 }
 
+export interface DatasetProcessingSummaryDTO {
+  jobId: string;
+  originalFilename: string;
+  originalRows: number;
+  processedRows: number;
+  processedColumns: number;
+  createdAt: string;
+  processedAt: string | null;
+  metadata: any;        
+  processingStats: any;   
+}
+
 export interface DatasetResponseDTO {
   id: string;
   name: string;
@@ -21,8 +33,13 @@ export interface DatasetResponseDTO {
   mimeType: string;
   sizeBytes: number;
   createdAt: string;
+
   jobId: string | null;
   job: JobDTO | null;
-  rawData?: string;     
-  processedData?: string | null;
+
+  rawData?: string;
+  processedData?: string;
+
+  // NEW: data coming from the R-created table
+  processingSummary?: DatasetProcessingSummaryDTO | null;
 }

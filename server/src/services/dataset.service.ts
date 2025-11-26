@@ -1,5 +1,5 @@
 import { prisma } from '@loaders/prisma';
-import type { DatasetUploadDTO, DatasetResponseDTO, JobDTO } from '../types/dataset.types';
+import type { DatasetUploadDTO, DatasetResponseDTO, JobDTO, DatasetProcessingSummaryDTO } from '../types/dataset.types';
 import { JobStatus } from '../../prisma/.prisma/client';
 import { preprocessQueue } from '@loaders/queue';
 import fs from 'fs';
@@ -7,7 +7,41 @@ import path from 'path';
 import { redis } from '@loaders/redis';
 import axios from 'axios';
 import cfg from "@config/index"
-import { objectToCsv } from '@utils/objectToCSV.util';
+
+type ProcessingSummaryRow = {
+  job_id: string;
+  original_filename: string;
+  original_rows: number;
+  processed_rows: number;
+  processed_columns: number;
+  created_at: Date;
+  processed_at: Date | null;
+  metadata: any;
+  processing_stats: any;
+};
+
+async function getProcessingSummaryForJob(jobId: string): Promise<ProcessingSummaryRow | null> {
+  const rows = await prisma.$queryRaw<ProcessingSummaryRow[]>`
+    SELECT
+      job_id,
+      original_filename,
+      original_rows,
+      processed_rows,
+      processed_columns,
+      created_at,
+      processed_at,
+      metadata,
+      processing_stats
+    FROM dataset_processing_summary
+    WHERE job_id = ${jobId}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+
+  if (!rows || rows.length === 0) return null;
+  return rows[0];
+}
+
 
 interface CreateDatasetParams {
   ownerId: string;
@@ -94,7 +128,11 @@ function toJobDTO(job: any | undefined): JobDTO | null {
  */
 function toDatasetResponse(
   dataset: any,
-  extras?: { rawData?: string | null; processedData?: string | null }
+  extras?: {
+    rawData?: string | null;
+    processedData?: string | null;
+    processingSummary?: DatasetProcessingSummaryDTO | null;
+  }
 ): DatasetResponseDTO {
   const job = dataset.jobs?.[0];
 
@@ -109,9 +147,11 @@ function toDatasetResponse(
     jobId: job ? job.id : null,
     job: toJobDTO(job),
 
-    // Only set when provided (e.g. get by id)
     ...(extras?.rawData !== undefined ? { rawData: extras.rawData ?? '' } : {}),
-    ...(extras?.processedData !== undefined ? { processedData: extras.processedData } : {}),
+    ...(extras?.processedData !== undefined ? { processedData: extras.processedData ?? '' } : {}),
+    ...(extras?.processingSummary !== undefined
+      ? { processingSummary: extras.processingSummary }
+      : {}),
   };
 }
 
@@ -162,40 +202,63 @@ export async function getDatasetById(
     return null;
   }
 
-  const job = dataset.jobs[0]; 
+  const job = dataset.jobs[0]; // may be undefined
 
+  // 1) Ensure processed file exists by calling the job-result API
   if (job && job.status === 'SUCCESS' && job.resultKey) {
     try {
       await axios.get(`${cfg.app.url}/jobs/${job.id}/result`, {
         headers: {
-          Authorization: token,
+          Authorization: token, // or `Bearer ${token}` if needed
         },
       });
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Error calling jobs result API:', err);
     }
   }
 
+  // 2) RAW file path (original upload)
   const rawPath = dataset.storagePath;
 
+  // 3) PROCESSED file path: raw/processed/<resultKey>.csv
   let processedPath: string | null = null;
   if (job?.resultKey) {
     processedPath = path.join('raw', 'processed', `${job.resultKey}.csv`);
   }
 
-  const [rawData, processedDataFromFile] = await Promise.all([
+  const [rawData, processedDataFromFile, processingSummaryRow] = await Promise.all([
     readFileIfExists(rawPath),
     processedPath ? readFileIfExists(processedPath) : Promise.resolve(null),
+    job ? getProcessingSummaryForJob(job.id) : Promise.resolve(null),
   ]);
 
   const processedData = processedDataFromFile ?? '';
 
+  // 4) Map the raw DB row to the DTO shape
+  const processingSummary = processingSummaryRow
+    ? {
+        jobId: processingSummaryRow.job_id,
+        originalFilename: processingSummaryRow.original_filename,
+        originalRows: processingSummaryRow.original_rows,
+        processedRows: processingSummaryRow.processed_rows,
+        processedColumns: processingSummaryRow.processed_columns,
+        createdAt: processingSummaryRow.created_at.toISOString(),
+        processedAt: processingSummaryRow.processed_at
+          ? processingSummaryRow.processed_at.toISOString()
+          : null,
+        metadata: processingSummaryRow.metadata,
+        processingStats: processingSummaryRow.processing_stats,
+      }
+    : null;
+
+  // 5) Return everything together
   return toDatasetResponse(dataset, {
     rawData: rawData ?? '',
     processedData,
+    processingSummary,
   });
 }
-
 
 interface UpdateDatasetParams {
   ownerId: string;

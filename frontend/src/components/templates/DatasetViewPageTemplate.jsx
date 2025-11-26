@@ -62,15 +62,18 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
   const metaDataset = useMemo(() => {
     if (!dataset) return null;
 
+    const numericColumns = dataset.processingSummary.metadata.numeric_columns ?? []
+    const categoricalColumns = dataset.processingSummary.metadata.categorical_columns ?? []
+
     return {
       id: dataset.id,
       name: dataset.originalName || dataset.name,
       size: formatBytes(dataset.sizeBytes),
       uploadedAt: formatDateTime(dataset.createdAt),
-      totalRows: dataset.totalRows ?? null, // optional, if backend adds
-      totalColumns: dataset.totalColumns ?? null,
-      categoricalColumns: dataset.categoricalColumns ?? null,
-      numericColumns: dataset.numericColumns ?? null,
+      totalRows:  dataset.processingSummary.processedRows ?? null,
+      totalColumns: dataset.processingSummary.processedColumns ?? null,
+      categoricalColumns: categoricalColumns.length,
+      numericColumns: numericColumns.length,
       lastJobStatus: dataset.job?.status || "PENDING",
       lastJobId: dataset.job?.id,
       lastProcessedAt: dataset.job?.completedAt
