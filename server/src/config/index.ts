@@ -5,7 +5,8 @@ import { jwt, z } from 'zod';
 const Schema = z.object({
   app: z.object({
     port: z.number(),
-    env: z.string()
+    env: z.string(),
+    url: z.string()
   }),
   frontend: z.object({ url: z.string() }),
   database: z.object({

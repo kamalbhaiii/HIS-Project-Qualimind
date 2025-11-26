@@ -1,7 +1,8 @@
 {
   "app": {
     "port": 10000,
-    "env": "testing"
+    "env": "testing",
+    "url":"http://server:10000/api"
   },
   "rateLimit": {
     "windowMs": 60000,

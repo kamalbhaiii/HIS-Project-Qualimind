@@ -79,7 +79,7 @@ export async function getDatasetByIdController(
 
     const { id } = req.params;
 
-    const dataset = await getDatasetById(user.sub, id);
+    const dataset = await getDatasetById(user.sub, id, req?.headers?.authorization || '');
 
     if (!dataset) {
       return res.status(404).json({ message: 'Dataset not found' });

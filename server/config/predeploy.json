@@ -1,7 +1,8 @@
 {
   "app": {
     "port": 8000,
-    "env": "predeploy"
+    "env": "predeploy",
+    "url":"http://server:8000/api"
   },
   "rateLimit": {
     "windowMs": 60000,
@@ -26,6 +27,6 @@
    "googleAuth": {
     "clientId": "356828934230-1eg49caaspcqof3olvapop4n1hgcaktq.apps.googleusercontent.com",
     "clientSecret": "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",
-    "redirectUri": "http://18.153.67.68:8000/api/auth/google/callback"
+    "redirectUri": "http://63.178.63.105:8000/api/auth/google/callback"
   }
 }

@@ -5,6 +5,9 @@ import { preprocessQueue } from '@loaders/queue';
 import fs from 'fs';
 import path from 'path';
 import { redis } from '@loaders/redis';
+import axios from 'axios';
+import cfg from "@config/index"
+import { objectToCsv } from '@utils/objectToCSV.util';
 
 interface CreateDatasetParams {
   ownerId: string;
@@ -139,7 +142,8 @@ export async function getUserDatasets(ownerId: string): Promise<DatasetResponseD
  */
 export async function getDatasetById(
   ownerId: string,
-  datasetId: string
+  datasetId: string,
+  token: string
 ): Promise<DatasetResponseDTO | null> {
   const dataset = await prisma.dataset.findFirst({
     where: {
@@ -158,33 +162,40 @@ export async function getDatasetById(
     return null;
   }
 
-  // raw CSV path (as stored by multer / normalize middleware)
-  const rawPath = dataset.storagePath;
+  const job = dataset.jobs[0]; 
 
-  // processed CSV assumed to be same filename but under raw/processed
-  // Example:
-  //   raw/uploads/myfile.csv  ->  raw/processed/myfile.csv
-  let processedPath = `raw/processed/${dataset.jobs[0].resultKey}.csv`;
-  if (processedPath.includes(`${path.sep}uploads${path.sep}`)) {
-    processedPath = processedPath.replace(
-      `${path.sep}uploads${path.sep}`,
-      `${path.sep}processed${path.sep}`
-    );
-  } else {
-    // fallback: simple string replace if paths are like "raw/uploads/..."
-    processedPath = processedPath.replace('raw/uploads/', 'raw/processed/');
+  if (job && job.status === 'SUCCESS' && job.resultKey) {
+    try {
+      await axios.get(`${cfg.app.url}/jobs/${job.id}/result`, {
+        headers: {
+          Authorization: token,
+        },
+      });
+    } catch (err) {
+      console.error('Error calling jobs result API:', err);
+    }
   }
 
-  const [rawData, processedData] = await Promise.all([
+  const rawPath = dataset.storagePath;
+
+  let processedPath: string | null = null;
+  if (job?.resultKey) {
+    processedPath = path.join('raw', 'processed', `${job.resultKey}.csv`);
+  }
+
+  const [rawData, processedDataFromFile] = await Promise.all([
     readFileIfExists(rawPath),
-    readFileIfExists(processedPath),
+    processedPath ? readFileIfExists(processedPath) : Promise.resolve(null),
   ]);
+
+  const processedData = processedDataFromFile ?? '';
 
   return toDatasetResponse(dataset, {
     rawData: rawData ?? '',
     processedData,
   });
 }
+
 
 interface UpdateDatasetParams {
   ownerId: string;
