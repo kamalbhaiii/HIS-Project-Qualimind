@@ -18,3 +18,8 @@ export const getDatasets = async () => {
 
   return res.data;
 }
+
+export const getDatasetByID = async (id) => {
+  const res = await api.get(`/datasets/${id}`)
+  return res.data;
+}

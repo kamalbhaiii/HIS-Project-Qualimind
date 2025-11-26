@@ -4,6 +4,7 @@ import { JobStatus } from '../../prisma/.prisma/client';
 import { preprocessQueue } from '@loaders/queue';
 import fs from 'fs';
 import path from 'path';
+import { redis } from '@loaders/redis';
 
 interface CreateDatasetParams {
   ownerId: string;
