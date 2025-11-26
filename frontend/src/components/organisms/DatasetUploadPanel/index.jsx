@@ -6,7 +6,7 @@ import FlexBox from '../../atoms/FlexBox';
 import Button from '../../atoms/CustomButton';
 import { useNavigate } from 'react-router-dom';
 
-const DatasetUploadPanel = ({ onNavigate }) => {
+const DatasetUploadPanel = () => {
   const navigate = useNavigate();
   const handleGoToUploadPage = () => {
     navigate('/upload-dataset');
@@ -38,10 +38,6 @@ const DatasetUploadPanel = ({ onNavigate }) => {
       </Typography>
     </SurfaceCard>
   );
-};
-
-DatasetUploadPanel.propTypes = {
-  onNavigate: PropTypes.func,
 };
 
 export default DatasetUploadPanel;

@@ -13,7 +13,7 @@ const AccountInfoPanel = ({ user, onLogout }) => {
         Account
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-        Basic information about your QualiMind account (mock data).
+        Basic information about your QualiMind account.
       </Typography>
 
       <FlexBox sx={{ mb: 1 }}>
@@ -53,7 +53,7 @@ const AccountInfoPanel = ({ user, onLogout }) => {
         }}
       >
         <Button variant="outlined" color="primary" size="small">
-          Manage account (mock)
+          Manage account
         </Button>
         <Button
           variant="text"

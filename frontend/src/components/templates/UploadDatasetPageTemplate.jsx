@@ -1,27 +1,41 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 
 import DashboardLayout from '../../components/templates/DashboardLayout';
 import FlexBox from '../../components/atoms/FlexBox';
 import Typography from '../../components/atoms/CustomTypography';
 import DragAndDropUploadArea from '../../components/organisms/DragAndDropUploadArea';
+import DatasetUploadWizard from '../../components/organisms/DatasetUploadWizard';
+import { useToast } from '../../components/organisms/ToastProvider';
+import { useNavigate } from 'react-router-dom';
 
 const UploadDatasetPageTemplate = ({ onNavigate }) => {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  const { showToast } = useToast();
+  const navigate = useNavigate();
+
   const handleFilesSelected = (files) => {
     if (!files || files.length === 0) return;
+    const file = files[0];
 
-    // Here you would later call your real upload API.
-    // For now, we just log and navigate away.
-    // eslint-disable-next-line no-console
-    console.log('Mock upload dataset files:', files);
+    setSelectedFile(file);
+    setWizardOpen(true);
+  };
 
-    // ✅ After upload, go to another page.
-    // You said "for now just keep '/'", so we treat that as "home/dashboard".
+  const handleWizardClose = () => {
+    setWizardOpen(false);
+    setSelectedFile(null);
+  };
+
+  const handleUploaded = (res) => {
+    // You can decide where to go: dashboard, datasets list, or dataset-view
+    // For now, we go to dashboard as you mentioned.
     if (onNavigate) {
-      onNavigate('dashboard'); // your routing layer can map this to '/'
+      onNavigate('dashboard');
     } else {
-      // Fallback: hard redirect as a plain SPA route
-      window.location.href = '/';
+      navigate('/dashboard');
     }
   };
 
@@ -32,26 +46,28 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
         Provide a dataset file to prepare it for qualitative and
-        quantitative preprocessing. This page currently uses mock upload
-        behavior only.
+        quantitative preprocessing.
       </Typography>
 
-      <FlexBox
-        sx={{
-          maxWidth: 720,
-        }}
-      >
+      <FlexBox sx={{ maxWidth: 720 }}>
         <DragAndDropUploadArea
           onFilesSelected={handleFilesSelected}
-          helperText="Max size ~100MB. In a future iteration, this will call the real /api/datasets endpoint."
+          helperText="Max size ~100MB. You will be able to choose columns & preprocessing steps before upload."
         />
       </FlexBox>
+
+      <DatasetUploadWizard
+        open={wizardOpen}
+        file={selectedFile}
+        onClose={handleWizardClose}
+        onUploaded={handleUploaded}
+      />
     </DashboardLayout>
   );
 };
 
 UploadDatasetPageTemplate.propTypes = {
-  onNavigate: PropTypes.func, // (key: string) => void — your existing router hook
+  onNavigate: PropTypes.func,
 };
 
 export default UploadDatasetPageTemplate;

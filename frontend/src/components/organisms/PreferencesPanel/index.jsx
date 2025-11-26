@@ -20,8 +20,7 @@ const PreferencesPanel = ({
         Preferences
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-        Control how QualiMind looks and behaves for you. These values are
-        currently mock-only.
+        Control how QualiMind looks and behaves for you.
       </Typography>
 
       <ToggleRow
