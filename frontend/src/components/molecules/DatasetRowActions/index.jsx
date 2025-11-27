@@ -11,7 +11,6 @@ import Icon from "../../atoms/Icon";
 import { faEye, faTrash } from "@fortawesome/free-solid-svg-icons";
 
 const DatasetRowActions = ({ status, onView, onDelete }) => {
-  console.log(status)
   const isSuccess = status === "SUCCESS";
 
   return (
@@ -20,15 +19,14 @@ const DatasetRowActions = ({ status, onView, onDelete }) => {
       {isSuccess && (
         <Tooltip title="View Dataset">
           <IconButton size="small" onClick={onView}>
-          <Icon icon={faEye} size="sm" />
+          <Icon icon={faEye} color={'blue'} size="sm" />
         </IconButton>
         </Tooltip>
       )}
 
-      {/* Delete always shown, but required for non-success */}
       <Tooltip title="Delete Dataset">
         <IconButton size="small" onClick={onDelete} color="error">
-        <Icon icon={faTrash} size="sm" />
+        <Icon icon={faTrash} color={'red'} size="sm" />
       </IconButton>
       </Tooltip>
     </Box>

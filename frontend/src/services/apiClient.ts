@@ -37,13 +37,9 @@ api.interceptors.response.use(
     const status = err?.response?.status;
 
     if (status === 401) {
-      // clear stored auth (tokens, user, etc.)
       clearAuth();
-
-      showToast('Your session is expried. Please sign-in again.')
-
-      // hard redirect to sign-in page
       window.location.href = '/sign-in';
+      showToast('Your session is expried. Please sign-in again.')
     }
 
     return Promise.reject(err);

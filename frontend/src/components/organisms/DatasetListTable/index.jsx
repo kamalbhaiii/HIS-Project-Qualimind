@@ -297,8 +297,6 @@ const DatasetListTable = ({ datasets, onViewDataset, onRemoveDataset }) => {
               </TableRow>
             ) : (
               paginatedDatasets.map((ds) => {
-                const canRemove = ds.lastJobStatus === 'SUCCESS';
-
                 return (
                   <TableRow key={ds.id} hover>
                     <TableCell>{ds.name}</TableCell>
@@ -320,9 +318,9 @@ const DatasetListTable = ({ datasets, onViewDataset, onRemoveDataset }) => {
                         onView={
                           onViewDataset ? () => onViewDataset(ds) : undefined
                         }
-                        onRemove={
-                          canRemove && onRemoveDataset
-                            ? () => onRemoveDataset(ds)
+                        onDelete={
+                          onRemoveDataset
+                            ? () => onRemoveDataset(ds.id)
                             : undefined
                         }
                       />
@@ -363,7 +361,7 @@ DatasetListTable.propTypes = {
     })
   ).isRequired,
   onViewDataset: PropTypes.func,
-  onRemoveDataset: PropTypes.func,  // ✨ new
+  onRemoveDataset: PropTypes.func,  
 };
 
 export default DatasetListTable;

@@ -6,7 +6,7 @@ import DashboardStatsOverview from '../organisms/DashboardStatsOverview';
 import DatasetListTable from '../organisms/DatasetListTable';
 import DatasetUploadPanel from '../organisms/DatasetUploadPanel';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
-import {getDatasets} from '../../services/modules/dataset.api'
+import {deleteDatasetByID, getDatasets} from '../../services/modules/dataset.api'
 import { useToast } from '../organisms/ToastProvider';
 
 const DatasetsPageTemplate = () => {
@@ -92,7 +92,6 @@ const DatasetsPageTemplate = () => {
   const handleStartJob = (dataset) => {
     // Here you can call an API to create a new processing job for the dataset
     // eslint-disable-next-line no-console
-    console.log('Start job for dataset:', dataset);
   };
 
   const handleUpload = async (files) => {
@@ -123,6 +122,17 @@ const DatasetsPageTemplate = () => {
     }
   };
 
+  const handleRemoveDataset = async (datasetId) => {
+    try{
+      const status = await deleteDatasetByID(datasetId)
+      await fetchDatasets()
+      showToast(`Dataset ${datasetId} removed successfully.`, 'success')
+    }
+    catch(err) {
+      showToast(err.message || err, 'error')
+    }
+  }
+
   return (
     <DashboardLayout activeKey="datasets">
       <DashboardStatsOverview stats={stats} />
@@ -152,6 +162,7 @@ const DatasetsPageTemplate = () => {
             datasets={tableDatasets}
             onViewDataset={handleViewDataset}
             onStartJob={handleStartJob}
+            onRemoveDataset={handleRemoveDataset}
           />
         )}
 

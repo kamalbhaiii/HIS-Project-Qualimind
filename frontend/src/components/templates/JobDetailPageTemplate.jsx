@@ -71,18 +71,6 @@ const JobDetailPageTemplate = () => {
     },
   ];
 
-  const handleRetry = (jobToRetry) => {
-    // Later: trigger retry via API
-    // eslint-disable-next-line no-console
-    console.log('Retry job (mock):', jobToRetry);
-  };
-
-  const handleExport = (format) => {
-    // Later: call /api/jobs/:id/export?format=...
-    // eslint-disable-next-line no-console
-    console.log(`Export job ${job.id} as`, format);
-  };
-
   const showSuccessAlert = job.status === 'SUCCESS';
   const showErrorAlert = job.status === 'FAILED' && job.errorMessage;
 

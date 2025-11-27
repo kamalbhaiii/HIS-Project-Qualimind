@@ -308,27 +308,65 @@ export async function updateDataset(
 }
 
 /**
- * Delete a dataset (and its jobs) for a user.
+ * Safely delete a file; ignore if it doesn't exist.
+ */
+async function safeUnlink(filePath: string) {
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') {
+      // file doesn't exist, ignore
+      return;
+    }
+    // optional: log other errors
+    // eslint-disable-next-line no-console
+    console.error(`Error deleting file at ${filePath}:`, err);
+  }
+}
+
+/**
+ * Delete a dataset (and its jobs + associated files) for a user.
  * Returns true if deleted, false if not found or not owned by user.
  */
-export async function deleteDataset(ownerId: string, datasetId: string): Promise<boolean> {
-  const existing = await prisma.dataset.findUnique({
-    where: { id: datasetId },
-    select: {
-      id: true,
-      ownerId: true,
+export async function deleteDataset(
+  ownerId: string,
+  datasetId: string
+): Promise<boolean> {
+  const dataset = await prisma.dataset.findFirst({
+    where: {
+      id: datasetId,
+      ownerId,
+    },
+    include: {
+      jobs: true,
     },
   });
 
-  if (!existing || existing.ownerId !== ownerId) {
+  if (!dataset) {
     return false;
   }
 
-  // If you don't have onDelete: Cascade, delete jobs explicitly.
+  // 1) Delete raw upload file (unprocessed)
+  const rawUploadPath = dataset.storagePath; // e.g. "raw/uploads/xyz.csv"
+  if (rawUploadPath) {
+    await safeUnlink(rawUploadPath);
+  }
+
+  // 2) Delete processed files associated with each job (if resultKey present)
+  //    Convention: raw/processed/<resultKey>.csv
+  for (const job of dataset.jobs) {
+    if (job.resultKey) {
+      const processedPath = path.join('raw', 'processed', `${job.resultKey}.csv`);
+      await safeUnlink(processedPath);
+    }
+  }
+
+  // 3) Delete jobs explicitly (if no ON DELETE CASCADE)
   await prisma.processingJob.deleteMany({
     where: { datasetId },
   });
 
+  // 4) Delete dataset record
   await prisma.dataset.delete({
     where: { id: datasetId },
   });

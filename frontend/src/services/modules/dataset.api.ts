@@ -23,3 +23,9 @@ export const getDatasetByID = async (id) => {
   const res = await api.get(`/datasets/${id}`)
   return res.data;
 }
+
+export const deleteDatasetByID = async (id) => {
+  const res = await api.delete(`/datasets/${id}`)
+  console.log(res)
+  return res.status;
+}

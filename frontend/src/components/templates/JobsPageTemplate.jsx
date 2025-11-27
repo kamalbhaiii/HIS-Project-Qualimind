@@ -1,6 +1,7 @@
-// src/pages/main/JobsPage.jsx (adjust path as per your structure)
-import React, { useState, useMemo } from 'react';
+// src/pages/main/JobsPage.jsx
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
 
 import DashboardLayout from '../../components/templates/DashboardLayout';
 import DashboardSectionHeader from '../../components/molecules/DashboardSectionHeader';
@@ -9,53 +10,84 @@ import FlexBox from '../../components/atoms/FlexBox';
 import JobStatusSummaryStrip from '../../components/organisms/JobStatusSummaryStrip';
 import JobsTable from '../../components/organisms/JobsTable';
 import StatusFilterChips from '../../components/molecules/StatusFilterChips';
+import { getJobs } from '../../services/modules/job.api';
+import Typography from '../../components/atoms/CustomTypography';
+import { useToast } from '../../components/organisms/ToastProvider'; // adjust path if needed
+import { deleteDatasetByID } from '../../services/modules/dataset.api';
+
+// Helpers for formatting
+const formatDateTime = (iso) => {
+  if (!iso) return null;
+  const date = new Date(iso);
+  return date.toLocaleString();
+};
+
+const formatDuration = (startIso, endIso) => {
+  if (!startIso || !endIso) return '—';
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return '—';
+
+  const diffMs = end - start;
+  const diffSec = Math.floor(diffMs / 1000);
+  const minutes = Math.floor(diffSec / 60);
+  const seconds = diffSec % 60;
+
+  if (minutes === 0) return `${seconds}s`;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+};
 
 const JobsPageTemplate = ({ onNavigate }) => {
-  const [filterStatus, setFilterStatus] = useState('ALL');
+  const {showToast} = useToast();
+  const navigate = useNavigate();
 
-  // Mock jobs data
-  const jobs = [
-    {
-      id: 'job_001',
-      datasetName: 'customer_churn.csv',
-      status: 'SUCCESS',
-      createdAt: '2025-11-20 10:30',
-      finishedAt: '2025-11-20 10:45',
-      duration: '15m',
-    },
-    {
-      id: 'job_002',
-      datasetName: 'survey_responses.csv',
-      status: 'RUNNING',
-      createdAt: '2025-11-23 08:02',
-      finishedAt: null,
-      duration: '—',
-    },
-    {
-      id: 'job_003',
-      datasetName: 'transactions_2025_q3.csv',
-      status: 'FAILED',
-      createdAt: '2025-11-22 16:44',
-      finishedAt: '2025-11-22 16:50',
-      duration: '6m',
-    },
-    {
-      id: 'job_004',
-      datasetName: 'marketing_leads.csv',
-      status: 'PENDING',
-      createdAt: '2025-11-23 09:10',
-      finishedAt: null,
-      duration: '—',
-    },
-    {
-      id: 'job_005',
-      datasetName: 'survey_responses.csv',
-      status: 'SUCCESS',
-      createdAt: '2025-11-21 13:15',
-      finishedAt: '2025-11-21 13:25',
-      duration: '10m',
-    },
-  ];
+  const [filterStatus, setFilterStatus] = useState('ALL');
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Fetch jobs from API
+  const fetchJobs = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await getJobs(); // expects an array as per your sample
+      setJobs(res || []);
+    } catch (err) {
+      const msg = err?.message || 'Failed to fetch jobs';
+      setError(msg);
+      showToast?.(msg, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
+
+  // Map API jobs -> UI jobs (format dates & duration)
+  const uiJobs = useMemo(
+    () =>
+      jobs.map((job) => ({
+        id: job.id,
+        datasetId: job.datasetId,
+        datasetName: job.datasetName,
+        status: job.status,
+        createdAt: formatDateTime(job.createdAt),
+        finishedAt: job.completedAt ? formatDateTime(job.completedAt) : null,
+        duration: formatDuration(job.startedAt, job.completedAt),
+        // raw values for sorting if needed
+        createdAtRaw: job.createdAt,
+        finishedAtRaw: job.completedAt,
+      })),
+    [jobs]
+  );
 
   // Counts (for the summary strip)
   const counts = useMemo(() => {
@@ -75,29 +107,36 @@ const JobsPageTemplate = ({ onNavigate }) => {
     return base;
   }, [jobs]);
 
-  // ✅ Filtered jobs based on selected status
+  // Filter by status for the table
   const filteredJobs = useMemo(() => {
-    if (filterStatus === 'ALL') return jobs;
-    return jobs.filter((job) => job.status === filterStatus);
-  }, [jobs, filterStatus]);
+    if (filterStatus === 'ALL') return uiJobs;
+    return uiJobs.filter((job) => job.status === filterStatus);
+  }, [uiJobs, filterStatus]);
 
   const handleFilterChange = (status) => {
     setFilterStatus(status);
   };
 
   const handleViewJob = (job) => {
-    // Later: navigate to JobDetailPage with job.id
-    // eslint-disable-next-line no-console
-    console.log('View job (mock):', job);
+    // Navigate to dataset view using datasetId
+    if (job.datasetId) {
+      navigate(`/dataset-view/${job.datasetId}`);
+    }
+    // Keep this if you still want app-level navigation logic
     if (onNavigate) {
-      onNavigate('jobDetail'); // or whatever key you use
+      onNavigate('datasetView');
     }
   };
 
-  const handleRetryJob = (job) => {
-    // Later: trigger re-run or open confirmation
-    // eslint-disable-next-line no-console
-    console.log('Retry job (mock):', job);
+  const handleDeleteJob = async (job) => {
+    try{
+      const status = await deleteDatasetByID(job.datasetId)
+      await fetchJobs()
+      showToast(`Job ${job.datasetId} removed successfully.`, 'success')
+    }
+    catch(err) {
+      showToast(`${err.message || err}`, 'error')
+    }
   };
 
   return (
@@ -117,10 +156,22 @@ const JobsPageTemplate = ({ onNavigate }) => {
         <JobStatusSummaryStrip counts={counts} />
       </FlexBox>
 
+      {loading && (
+        <Typography variant="body2" sx={{ mb: 1 }}>
+          Loading jobs...
+        </Typography>
+      )}
+
+      {error && !loading && (
+        <Typography variant="body2" color="error" sx={{ mb: 1 }}>
+          {error}
+        </Typography>
+      )}
+
       <JobsTable
         jobs={filteredJobs}
         onViewJob={handleViewJob}
-        onRetryJob={handleRetryJob}
+        onDeleteJob={handleDeleteJob}
       />
     </DashboardLayout>
   );
