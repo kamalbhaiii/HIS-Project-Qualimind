@@ -1,3 +1,4 @@
+// src/components/organisms/DashboardStatsOverview.jsx
 import React from 'react';
 import PropTypes from 'prop-types';
 import Grid from '@mui/material/Grid';
@@ -28,7 +29,7 @@ const DashboardStatsOverview = ({ stats }) => {
             helperText="Currently in progress"
           />
         </Grid>
-                <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={4}>
           <StatCard
             label="Pending jobs (24h)"
             value={pendingJobs}
@@ -52,6 +53,7 @@ DashboardStatsOverview.propTypes = {
     processedDatasets: PropTypes.number.isRequired,
     runningJobs: PropTypes.number.isRequired,
     failedJobs24h: PropTypes.number.isRequired,
+    pendingJobs: PropTypes.number.isRequired,
   }).isRequired,
 };
 

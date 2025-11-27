@@ -1,5 +1,7 @@
-import React from 'react';
+// src/pages/main/DashboardPage.jsx
+import React, { useState, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
 
 import DashboardLayout from '../../components/templates/DashboardLayout';
 import DashboardStatsOverview from '../../components/organisms/DashboardStatsOverview';
@@ -7,62 +9,145 @@ import RecentJobsTable from '../../components/organisms/RecentJobsTable';
 import RecentDatasetsTable from '../../components/organisms/RecentDatasetsTable';
 import QuickActionsPanel from '../../components/organisms/QuickActionsPanel';
 import FlexBox from '../../components/atoms/FlexBox';
-import { useNavigate } from 'react-router-dom';
-import ProtectedRoute from '../../routes/ProtectedRoute'; 
+import Typography from '../../components/atoms/CustomTypography';
+import ProtectedRoute from '../../routes/ProtectedRoute';
+
+import { getJobs } from '../../services/modules/job.api';
+import { getDatasets } from '../../services/modules/dataset.api';
+import { useToast } from '../../components/organisms/ToastProvider';
+
+// --- helpers ---------------------------------------------------------
+
+const formatDateTime = (iso) => {
+  if (!iso) return '-';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString(); // tweak if you want a different style
+};
+
+const formatDate = (iso) => {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+};
+
+const formatBytes = (bytes) => {
+  if (!Number.isFinite(bytes)) return '-';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const value = bytes / Math.pow(k, i);
+  return `${value.toFixed(1)} ${sizes[i]}`;
+};
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const DashboardPage = ({ onNavigate }) => {
-    const navigate = useNavigate();
-  // Mock data for now; later we plug in real API data
-  const stats = {
-    processedDatasets: 12,
-    runningJobs: 3,
-    failedJobs24h: 1,
-  };
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
-  const recentJobs = [
-    {
-      id: 'job_001',
-      datasetName: 'customer_churn.csv',
-      status: 'SUCCESS',
-      createdAt: '2025-11-20 10:15',
-    },
-    {
-      id: 'job_002',
-      datasetName: 'survey_responses.csv',
-      status: 'RUNNING',
-      createdAt: '2025-11-23 08:02',
-    },
-    {
-      id: 'job_003',
-      datasetName: 'transactions_2025_q3.csv',
-      status: 'FAILED',
-      createdAt: '2025-11-22 16:44',
-    },
-  ];
+  const [jobs, setJobs] = useState([]);
+  const [datasets, setDatasets] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const recentDatasets = [
-    {
-      id: 'ds_001',
-      name: 'customer_churn.csv',
-      size: '2.4 MB',
-      uploadedAt: '2025-11-20',
-    },
-    {
-      id: 'ds_002',
-      name: 'survey_responses.csv',
-      size: '1.2 MB',
-      uploadedAt: '2025-11-22',
-    },
-    {
-      id: 'ds_003',
-      name: 'transactions_2025_q3.csv',
-      size: '5.8 MB',
-      uploadedAt: '2025-11-23',
-    },
-  ];
+  // Fetch jobs + datasets once on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [jobsRes, datasetsRes] = await Promise.all([
+          getJobs(),
+          getDatasets(),
+        ]);
+
+        setJobs(jobsRes || []);
+        setDatasets(datasetsRes || []);
+      } catch (err) {
+        const msg = err?.message || 'Failed to load dashboard data';
+        setError(msg);
+        showToast?.(msg, 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run only once on mount
+
+  // --- Stats (from real jobs) -----------------------------------------
+
+  const stats = useMemo(() => {
+    const now = Date.now();
+
+    // processedDatasets: distinct datasetIds that have at least one SUCCESS job
+    const successDatasetIds = new Set(
+      jobs
+        .filter((j) => j.status === 'SUCCESS' && j.datasetId)
+        .map((j) => j.datasetId)
+    );
+
+    const runningJobs = jobs.filter((j) => j.status === 'RUNNING').length;
+    const pendingJobs = jobs.filter((j) => j.status === 'PENDING').length;
+
+    const failedJobs24h = jobs.filter((j) => {
+      if (j.status !== 'FAILED' || !j.completedAt) return false;
+      const completedAt = new Date(j.completedAt).getTime();
+      if (Number.isNaN(completedAt)) return false;
+      return now - completedAt <= ONE_DAY_MS;
+    }).length;
+
+    return {
+      processedDatasets: successDatasetIds.size,
+      runningJobs,
+      pendingJobs,
+      failedJobs24h,
+    };
+  }, [jobs]);
+
+  // --- Recent jobs (real data) ----------------------------------------
+
+  const recentJobs = useMemo(() => {
+    const sorted = [...jobs].sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime; // newest first
+    });
+
+    return sorted.slice(0, 5).map((job) => ({
+      id: job.id,
+      datasetName: job.datasetName || '—',
+      status: job.status,
+      createdAt: formatDateTime(job.createdAt),
+    }));
+  }, [jobs]);
+
+  // --- Recent datasets (real data) ------------------------------------
+
+  const recentDatasets = useMemo(() => {
+    const sorted = [...datasets].sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime; // newest first
+    });
+
+    return sorted.slice(0, 5).map((d) => ({
+      id: d.id,
+      name: d.name || d.originalName || 'Untitled dataset',
+      size: formatBytes(d.sizeBytes),
+      uploadedAt: formatDate(d.createdAt),
+    }));
+  }, [datasets]);
+
+  // --- Quick actions --------------------------------------------------
 
   const handleUploadDataset = () => {
-    navigate('/upload-dataset');    
+    navigate('/upload-dataset');
   };
 
   const handleViewJobs = () => {
@@ -71,27 +156,46 @@ const DashboardPage = ({ onNavigate }) => {
 
   return (
     <ProtectedRoute>
-          <DashboardLayout activeKey="dashboard" onNavigate={onNavigate}>
-      <DashboardStatsOverview stats={stats} />
+      <DashboardLayout activeKey="dashboard" onNavigate={onNavigate}>
+        <DashboardStatsOverview stats={stats} />
 
-      <FlexBox
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '2fr 2fr' },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <RecentJobsTable jobs={recentJobs} />
-        <RecentDatasetsTable datasets={recentDatasets} />
-      </FlexBox>
+        {error && (
+          <Typography
+            variant="body2"
+            color="error"
+            sx={{ mb: 1 }}
+          >
+            {error}
+          </Typography>
+        )}
 
-      <QuickActionsPanel
-        onUploadDataset={handleUploadDataset}
-        onViewJobs={handleViewJobs}
-      />
-    </DashboardLayout>
-      </ProtectedRoute>
+        {loading && (
+          <Typography
+            variant="body2"
+            sx={{ mb: 1 }}
+          >
+            Loading dashboard data...
+          </Typography>
+        )}
+
+        <FlexBox
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', md: '2fr 2fr' },
+            gap: 2,
+            mb: 3,
+          }}
+        >
+          <RecentJobsTable jobs={recentJobs} />
+          <RecentDatasetsTable datasets={recentDatasets} />
+        </FlexBox>
+
+        <QuickActionsPanel
+          onUploadDataset={handleUploadDataset}
+          onViewJobs={handleViewJobs}
+        />
+      </DashboardLayout>
+    </ProtectedRoute>
   );
 };
 
