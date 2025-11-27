@@ -35,7 +35,7 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
     if (onNavigate) {
       onNavigate('dashboard');
     } else {
-      navigate('/dashboard');
+      navigate('/datasets');
     }
   };
 

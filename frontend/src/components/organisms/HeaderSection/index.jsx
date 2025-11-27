@@ -1,7 +1,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '../../atoms/CustomTypography';
-import { LogoIcon } from '../../atoms/Icon/index.jsx';
+import Logo from '../../../assets/logo.png'
 
 const HeaderSection = () => {
   return (
@@ -21,7 +21,7 @@ const HeaderSection = () => {
         }}
         aria-label="DataPrep Pro Logo"
       >
-        <LogoIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+        Logo
       </Box>
       <Typography variant="h5" fontWeight={700} color="textPrimary">
         Welcome to Qualimind

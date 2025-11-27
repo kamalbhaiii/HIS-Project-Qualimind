@@ -6,7 +6,7 @@ import AuthPageShell from './AuthPageShell';
 import FlexBox from '../atoms/FlexBox';
 import InputFieldWithLabel from '../molecules/InputFieldWithLabel';
 import Button from '../atoms/CustomButton';
-import { EmailIcon, LockIcon, UserIcon } from '../atoms/Icon';
+import Icon from '../atoms/Icon';
 import LinkText from '../molecules/LinkText';
 import Typography from '../atoms/CustomTypography';
 import SocialSignInButton from '../molecules/SocialSigninButton';
@@ -14,6 +14,7 @@ import SocialSignInButton from '../molecules/SocialSigninButton';
 import { signupUser } from '../../services/modules/auth.api';
 import { saveAuth } from '../../lib/authStorage';
 import { useToast } from '../organisms/ToastProvider';
+import { faMessage, faUser, faLock } from '@fortawesome/free-solid-svg-icons';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -168,10 +169,7 @@ const SignUpPageTemplate = ({
             display: 'flex',
           }}
         >
-          <svg width="32" height="32" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" fill="#1976D2" />
-            <path fill="#fff" d="M9 7h2v10H9zM13 7h2v10h-2z" />
-          </svg>
+          Logo
         </FlexBox>
 
         <Typography variant="h5" fontWeight={700}>
@@ -207,7 +205,7 @@ const SignUpPageTemplate = ({
           onBlur={handleBlur('name')}
           error={Boolean(errors.name)}
           helperText={errors.name}
-          icon={<UserIcon sx={{ mr: 1 }} />}
+          icon={<Icon icon={faUser} size='sm'/>}
           name="name"
           id="name"
           required
@@ -224,7 +222,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('email')}
             error={Boolean(errors.email)}
             helperText={errors.email}
-            icon={<EmailIcon sx={{ mr: 1 }} />}
+            icon={<Icon icon={faMessage} size='sm' />}
             type="email"
             name="email"
             id="email"
@@ -244,7 +242,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('password')}
             error={Boolean(errors.password)}
             helperText={errors.password}
-            icon={<LockIcon sx={{ mr: 1 }} />}
+            icon={<Icon icon={faLock} size='sm' />}
             type="password"
             name="password"
             required
@@ -262,7 +260,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('confirmPassword')}
             error={Boolean(errors.confirmPassword)}
             helperText={errors.confirmPassword}
-            icon={<LockIcon sx={{ mr: 1 }} />}
+            icon={<Icon icon={faLock} size='sm' />}
             type="password"
             name="confirmPassword"
             required

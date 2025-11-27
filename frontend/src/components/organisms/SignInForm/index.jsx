@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import Box from '@mui/material/Box';
 import InputFieldWithLabel from '../../molecules/InputFieldWithLabel';
 import Button from '../../atoms/CustomButton';
-import { EmailIcon, LockIcon } from '../../atoms/Icon';
+import Icon from '../../atoms/Icon';
 import PropTypes from 'prop-types';
+import { faLock, faMessage } from '@fortawesome/free-solid-svg-icons';
+
 
 const SignInForm = ({ onSubmit, loading }) => {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -61,7 +63,7 @@ const SignInForm = ({ onSubmit, loading }) => {
         helperText={errors.email}
         type="email"
         required
-        icon={<EmailIcon sx={{ mr: 1, color: 'action.active' }} />}
+        icon={<Icon icon={faMessage} size='sm'/>}
         name="email"
         id="email"
         autoComplete="email"
@@ -78,7 +80,7 @@ const SignInForm = ({ onSubmit, loading }) => {
           helperText={errors.password}
           type="password"
           required
-          icon={<LockIcon sx={{ mr: 1, color: 'action.active' }} />}
+          icon={<Icon icon={faLock} size='sm' />}
           name="password"
           id="password"
           autoComplete="current-password"

@@ -1,3 +1,4 @@
+// DatasetListTable.jsx
 import React from 'react';
 import PropTypes from 'prop-types';
 
@@ -35,7 +36,7 @@ const SORT_KEYS = {
   STATUS: 'status',
 };
 
-const DatasetListTable = ({ datasets, onViewDataset, onStartJob }) => {
+const DatasetListTable = ({ datasets, onViewDataset, onRemoveDataset }) => {
   const [page, setPage] = React.useState(1);
   const [filters, setFilters] = React.useState(defaultFilters);
   const [sortBy, setSortBy] = React.useState(SORT_KEYS.UPLOADED_AT);
@@ -295,33 +296,40 @@ const DatasetListTable = ({ datasets, onViewDataset, onStartJob }) => {
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedDatasets.map((ds) => (
-                <TableRow key={ds.id} hover>
-                  <TableCell>{ds.name}</TableCell>
-                  <TableCell>{ds.size}</TableCell>
-                  <TableCell>{ds.uploadedAt}</TableCell>
-                  <TableCell>{ds.lastJobId || '—'}</TableCell>
-                  <TableCell>
-                    {ds.lastJobStatus ? (
-                      <StatusChip status={ds.lastJobStatus} />
-                    ) : (
-                      <Typography variant="caption" color="textSecondary">
-                        No runs
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="right">
-                    <DatasetRowActions
-                      onView={
-                        onViewDataset ? () => onViewDataset(ds) : undefined
-                      }
-                      onStartJob={
-                        onStartJob ? () => onStartJob(ds) : undefined
-                      }
-                    />
-                  </TableCell>
-                </TableRow>
-              ))
+              paginatedDatasets.map((ds) => {
+                const canRemove = ds.lastJobStatus === 'SUCCESS';
+
+                return (
+                  <TableRow key={ds.id} hover>
+                    <TableCell>{ds.name}</TableCell>
+                    <TableCell>{ds.size}</TableCell>
+                    <TableCell>{ds.uploadedAt}</TableCell>
+                    <TableCell>{ds.lastJobId || '—'}</TableCell>
+                    <TableCell>
+                      {ds.lastJobStatus ? (
+                        <StatusChip status={ds.lastJobStatus} />
+                      ) : (
+                        <Typography variant="caption" color="textSecondary">
+                          No runs
+                        </Typography>
+                      )}
+                    </TableCell>
+                   <TableCell align="right">
+                      <DatasetRowActions
+                        status={ds.status}
+                        onView={
+                          onViewDataset ? () => onViewDataset(ds) : undefined
+                        }
+                        onRemove={
+                          canRemove && onRemoveDataset
+                            ? () => onRemoveDataset(ds)
+                            : undefined
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -354,8 +362,8 @@ DatasetListTable.propTypes = {
       lastJobId: PropTypes.string,
     })
   ).isRequired,
-  onViewDataset: PropTypes.func, 
-  onStartJob: PropTypes.func, 
+  onViewDataset: PropTypes.func,
+  onRemoveDataset: PropTypes.func,  // ✨ new
 };
 
 export default DatasetListTable;

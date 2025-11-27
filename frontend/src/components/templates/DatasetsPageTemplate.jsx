@@ -56,13 +56,15 @@ const DatasetsPageTemplate = () => {
   };
 
   // Map API datasets into what DatasetListTable expects
-  const tableDatasets = datasets.map((d) => ({
+  const tableDatasets = datasets.map((d) => (
+    {
     id: d.id,
     name: d.name || d.originalName,
     size: formatBytes(d.sizeBytes),
     uploadedAt: formatDate(d.createdAt),
     lastJobStatus: d.job?.status || null,
     lastJobId: d.job?.id || null,
+    status: d?.job?.status
   }));
 
   // Derive stats from real data

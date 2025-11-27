@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { API_BASE_URL, SERVER_TIMEOUT } from './config';
-import { getToken } from '../lib/authStorage.js';
+import { getToken, clearAuth } from '../lib/authStorage.js';
+import {useToast} from "../components/organisms/ToastProvider";
+
+const {showToast} = useToast();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -31,7 +34,18 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    console.error('API Error:', err?.response || err);
+    const status = err?.response?.status;
+
+    if (status === 401) {
+      // clear stored auth (tokens, user, etc.)
+      clearAuth();
+
+      showToast('Your session is expried. Please sign-in again.')
+
+      // hard redirect to sign-in page
+      window.location.href = '/sign-in';
+    }
+
     return Promise.reject(err);
   }
 );

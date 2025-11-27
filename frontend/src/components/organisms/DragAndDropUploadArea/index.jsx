@@ -65,7 +65,7 @@ const DragAndDropUploadArea = ({
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
         Drag and drop your dataset file here, or select it from your
-        computer. Supported formats: CSV, JSON, TXT.
+        computer. Supported formats: CSV, JSON, Excel.
       </Typography>
 
       <Box

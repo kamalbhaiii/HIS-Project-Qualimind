@@ -18,7 +18,7 @@ const DatasetUploadPanel = () => {
         Upload new dataset
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-        Supported formats: CSV (recommended), JSON, TXT. The file will be
+        Supported formats: CSV (recommended), JSON, Excel. The file will be
         validated and prepared for preprocessing.
       </Typography>
 
