@@ -4,11 +4,7 @@ import { prisma } from '@loaders/prisma';
 import {
   getJobResult,
   exportJobResult,
-  createJobForDataset,
   listJobsForUser,
-  getJobByIdForUser,
-  updateJobForUser,
-  deleteJobForUser,
 } from './service.job';
 
 // ---------- existing controllers ----------
@@ -111,35 +107,6 @@ export async function exportJobResultController(
   }
 }
 
-
-export async function createJobController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const user = req.authUser;
-    if (!user) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
-
-    const body = req.body as { datasetId: string };
-    if (!body.datasetId) {
-      return res.status(400).json({ message: 'datasetId is required' });
-    }
-
-    const job = await createJobForDataset(user.sub, { datasetId: body.datasetId });
-
-    if (!job) {
-      return res.status(404).json({ message: 'Dataset not found' });
-    }
-
-    return res.status(201).json(job);
-  } catch (err) {
-    return next(err);
-  }
-}
-
 export async function listJobsController(
   req: Request,
   res: Response,
@@ -153,83 +120,6 @@ export async function listJobsController(
 
     const jobs = await listJobsForUser(user.sub);
     return res.status(200).json(jobs);
-  } catch (err) {
-    return next(err);
-  }
-}
-
-export async function getJobByIdController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const user = req.authUser;
-    if (!user) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-
-    const job = await getJobByIdForUser(user.sub, id);
-    if (!job) {
-      return res.status(404).json({ message: 'Job not found' });
-    }
-
-    return res.status(200).json(job);
-  } catch (err) {
-    return next(err);
-  }
-}
-
-export async function updateJobController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const user = req.authUser;
-    if (!user) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-    const body = req.body as { status?: string; errorMessage?: string | null };
-
-    if (body.status === undefined && body.errorMessage === undefined) {
-      return res.status(400).json({ message: 'Nothing to update' });
-    }
-
-    const job = await updateJobForUser(user.sub, id, body as any);
-    if (!job) {
-      return res.status(404).json({ message: 'Job not found' });
-    }
-
-    return res.status(200).json(job);
-  } catch (err) {
-    return next(err);
-  }
-}
-
-export async function deleteJobController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const user = req.authUser;
-    if (!user) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-
-    const deleted = await deleteJobForUser(user.sub, id);
-    if (!deleted) {
-      return res.status(404).json({ message: 'Job not found' });
-    }
-
-    return res.status(204).send();
   } catch (err) {
     return next(err);
   }

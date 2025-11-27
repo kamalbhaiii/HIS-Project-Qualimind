@@ -144,14 +144,6 @@ export interface JobResponseDTO {
   completedAt: string | null;
 }
 
-export interface CreateJobDTO {
-  datasetId: string;
-}
-
-export interface UpdateJobDTO {
-  status?: JobStatus;
-  errorMessage?: string | null;
-}
 
 // internal mapper
 function toJobResponse(job: any): JobResponseDTO {
@@ -168,42 +160,6 @@ function toJobResponse(job: any): JobResponseDTO {
   };
 }
 
-/**
- * Create a new job for a dataset owned by this user.
- */
-export async function createJobForDataset(
-  ownerId: string,
-  body: CreateJobDTO
-): Promise<JobResponseDTO | null> {
-  const { datasetId } = body;
-
-  // ensure dataset exists and belongs to user
-  const dataset = await prisma.dataset.findFirst({
-    where: {
-      id: datasetId,
-      ownerId,
-    },
-  });
-
-  if (!dataset) {
-    return null;
-  }
-
-  const job = await prisma.processingJob.create({
-    data: {
-      datasetId: dataset.id,
-      status: JobStatus.PENDING,
-    },
-    include: {
-      dataset: true,
-    },
-  });
-
-  // if you have a queue, you can enqueue here if needed
-  // await preprocessQueue.add('preprocess-dataset', { processingJobId: job.id, datasetId: dataset.id });
-
-  return toJobResponse(job);
-}
 
 /**
  * List all jobs for the current user (across all their datasets).
@@ -222,86 +178,4 @@ export async function listJobsForUser(ownerId: string): Promise<JobResponseDTO[]
   });
 
   return jobs.map(toJobResponse);
-}
-
-/**
- * Get a single job by id for the current user.
- */
-export async function getJobByIdForUser(
-  ownerId: string,
-  jobId: string
-): Promise<JobResponseDTO | null> {
-  const job = await prisma.processingJob.findFirst({
-    where: {
-      id: jobId,
-      dataset: {
-        ownerId,
-      },
-    },
-    include: {
-      dataset: true,
-    },
-  });
-
-  if (!job) return null;
-
-  return toJobResponse(job);
-}
-
-/**
- * Update a job (status / errorMessage) for the current user.
- */
-export async function updateJobForUser(
-  ownerId: string,
-  jobId: string,
-  body: UpdateJobDTO
-): Promise<JobResponseDTO | null> {
-  const existing = await prisma.processingJob.findFirst({
-    where: {
-      id: jobId,
-      dataset: {
-        ownerId,
-      },
-    },
-    include: {
-      dataset: true,
-    },
-  });
-
-  if (!existing) return null;
-
-  const updated = await prisma.processingJob.update({
-    where: { id: jobId },
-    data: {
-      ...(body.status !== undefined ? { status: body.status } : {}),
-      ...(body.errorMessage !== undefined ? { errorMessage: body.errorMessage } : {}),
-    },
-    include: {
-      dataset: true,
-    },
-  });
-
-  return toJobResponse(updated);
-}
-
-/**
- * Delete a job (must belong to user's dataset).
- */
-export async function deleteJobForUser(ownerId: string, jobId: string): Promise<boolean> {
-  const existing = await prisma.processingJob.findFirst({
-    where: {
-      id: jobId,
-      dataset: {
-        ownerId,
-      },
-    },
-  });
-
-  if (!existing) return false;
-
-  await prisma.processingJob.delete({
-    where: { id: jobId },
-  });
-
-  return true;
 }
