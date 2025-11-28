@@ -72,7 +72,11 @@ export const authPaths = {
                 properties: {
                   message: {
                     type: 'string',
-                    example: 'email and password are required',
+                    example: 'Validation failed',
+                  },
+                  errors: {
+                    type: 'array',
+                    items: { type: 'string' },
                   },
                 },
               },
@@ -143,6 +147,72 @@ export const authPaths = {
       ],
     },
   },
+
+  '/api/auth/login': {
+    post: {
+      summary: 'Log in with email and password',
+      description: 'Authenticates an existing user using email and password and returns a JWT.',
+      tags: ['Auth'],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['email', 'password'],
+              properties: {
+                email: {
+                  type: 'string',
+                  format: 'email',
+                  example: 'user@example.com',
+                },
+                password: {
+                  type: 'string',
+                  example: 'Str0ngP@ssw0rd!',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Login successful.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  user: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      email: { type: 'string', format: 'email' },
+                      name: { type: 'string', nullable: true },
+                    },
+                  },
+                  token: {
+                    type: 'string',
+                    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Validation error.',
+        },
+        401: {
+          description: 'Invalid email or password.',
+        },
+        500: {
+          description: 'Internal server error.',
+        },
+      },
+    },
+  },
+
   '/api/auth/google/url': {
     get: {
       summary: 'Get Google OAuth sign-in URL',
@@ -172,6 +242,7 @@ export const authPaths = {
       },
     },
   },
+
   '/api/auth/google/callback': {
     get: {
       summary: 'Google OAuth callback handler',
@@ -230,27 +301,76 @@ export const authPaths = {
       },
     },
   },
-    '/api/auth/login': {
-    post: {
-      summary: 'Log in with email and password',
-      description: 'Authenticates an existing user using email and password and returns a JWT.',
+
+  // -------------------------------------------------------------------
+  // AUTHENTICATED USER ENDPOINTS (/me)
+  // -------------------------------------------------------------------
+
+  '/api/auth/me': {
+    get: {
+      summary: 'Get current authenticated user profile',
+      description: 'Returns basic profile information for the authenticated user.',
       tags: ['Auth'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Current user profile.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', example: 'clzv1a9s8000stuvwxyz12345' },
+                  email: { type: 'string', format: 'email', example: 'user@example.com' },
+                  name: { type: 'string', nullable: true, example: 'Jane Doe' },
+                  googleId: { type: 'string', nullable: true, example: '123456789012345678901' },
+                  createdAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+        401: { description: 'Unauthorized – missing or invalid token.' },
+        404: { description: 'User not found.' },
+        500: { description: 'Internal server error.' },
+      },
+    },
+
+    delete: {
+      summary: 'Delete the authenticated user account',
+      description:
+        'Deletes the authenticated user account and all associated datasets and jobs. Works for both local and Google sign-in users.',
+      tags: ['Auth'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        204: {
+          description: 'Account deleted successfully. No content is returned.',
+        },
+        401: { description: 'Unauthorized – missing or invalid token.' },
+        404: { description: 'User not found.' },
+        500: { description: 'Internal server error.' },
+      },
+    },
+  },
+
+  '/api/auth/me/name': {
+    put: {
+      summary: 'Update display name (local accounts only)',
+      description:
+        'Updates the display name of the authenticated user. This operation is only allowed for users who registered with email/password (non-Google accounts).',
+      tags: ['Auth'],
+      security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['email', 'password'],
+              required: ['name'],
               properties: {
-                email: {
+                name: {
                   type: 'string',
-                  format: 'email',
-                  example: 'user@example.com',
-                },
-                password: {
-                  type: 'string',
-                  example: 'Str0ngP@ssw0rd!',
+                  example: 'New Name',
                 },
               },
             },
@@ -259,24 +379,15 @@ export const authPaths = {
       },
       responses: {
         200: {
-          description: 'Login successful.',
+          description: 'Name updated successfully.',
           content: {
             'application/json': {
               schema: {
                 type: 'object',
                 properties: {
-                  user: {
-                    type: 'object',
-                    properties: {
-                      id: { type: 'string' },
-                      email: { type: 'string', format: 'email' },
-                      name: { type: 'string', nullable: true },
-                    },
-                  },
-                  token: {
-                    type: 'string',
-                    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-                  },
+                  id: { type: 'string' },
+                  email: { type: 'string', format: 'email' },
+                  name: { type: 'string', nullable: true },
                 },
               },
             },
@@ -286,7 +397,132 @@ export const authPaths = {
           description: 'Validation error.',
         },
         401: {
-          description: 'Invalid email or password.',
+          description: 'Unauthorized – missing or invalid token.',
+        },
+        403: {
+          description: 'Operation not allowed for Google sign-in accounts.',
+        },
+        404: {
+          description: 'User not found.',
+        },
+        500: {
+          description: 'Internal server error.',
+        },
+      },
+    },
+  },
+
+  '/api/auth/me/email': {
+    put: {
+      summary: 'Update email address (local accounts only)',
+      description:
+        'Updates the email address of the authenticated user. Only allowed for local accounts and requires the current password for confirmation.',
+      tags: ['Auth'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['newEmail', 'currentPassword'],
+              properties: {
+                newEmail: {
+                  type: 'string',
+                  format: 'email',
+                  example: 'new-email@example.com',
+                },
+                currentPassword: {
+                  type: 'string',
+                  example: 'CurrentP@ssw0rd!',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Email updated successfully.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  email: { type: 'string', format: 'email' },
+                  name: { type: 'string', nullable: true },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Validation error.',
+        },
+        401: {
+          description: 'Unauthorized or incorrect current password.',
+        },
+        403: {
+          description: 'Operation not allowed for Google sign-in accounts.',
+        },
+        409: {
+          description: 'Email already in use by another account.',
+        },
+        404: {
+          description: 'User not found.',
+        },
+        500: {
+          description: 'Internal server error.',
+        },
+      },
+    },
+  },
+
+  '/api/auth/me/password': {
+    put: {
+      summary: 'Update password (local accounts only)',
+      description:
+        'Updates the password for the authenticated user. Only allowed for local accounts and requires the current password.',
+      tags: ['Auth'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['currentPassword', 'newPassword'],
+              properties: {
+                currentPassword: {
+                  type: 'string',
+                  example: 'CurrentP@ssw0rd!',
+                },
+                newPassword: {
+                  type: 'string',
+                  minLength: 8,
+                  example: 'NewStr0ngP@ssw0rd!',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        204: {
+          description: 'Password updated successfully. No content is returned.',
+        },
+        400: {
+          description: 'Validation error.',
+        },
+        401: {
+          description: 'Unauthorized or incorrect current password.',
+        },
+        403: {
+          description: 'Operation not allowed for Google sign-in accounts.',
+        },
+        404: {
+          description: 'User not found.',
         },
         500: {
           description: 'Internal server error.',

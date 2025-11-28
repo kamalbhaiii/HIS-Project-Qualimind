@@ -1,9 +1,16 @@
 import { Router } from 'express';
-import { signupController, loginController } from '../controllers/auth.controller';
+import { signupController, loginController,
+  updateNameController,
+  updateEmailController,
+  updatePasswordController,
+  deleteAccountController,
+  meController
+} from '../controllers/auth.controller';
 import {
   googleAuthUrlController,
   googleCallbackController,
 } from '../controllers/google.controller';
+import { authMiddleware } from '../middlewares/protectedRoutes';
 
 const router = Router();
 
@@ -13,10 +20,25 @@ router.post('/signup', signupController);
 // POST /auth/login
 router.post('/login', loginController);
 
-// GET /auth/google/url -> returns the Google redirect URL
+// GET /auth/google/url
 router.get('/google/url', googleAuthUrlController);
 
 // GET /auth/google/callback?code=...
 router.get('/google/callback', googleCallbackController);
+
+// PUT /auth/me/name
+router.put('/me/name', authMiddleware, updateNameController);
+
+// PUT /auth/me/email
+router.put('/me/email', authMiddleware, updateEmailController);
+
+// PUT /auth/me/password
+router.put('/me/password', authMiddleware, updatePasswordController);
+
+// GET /auth/me
+router.get('/me', authMiddleware, meController);
+
+// DELETE /auth/me
+router.delete('/me', authMiddleware, deleteAccountController);
 
 export default router;
