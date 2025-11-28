@@ -17,10 +17,19 @@ import FlexBox from '../../atoms/FlexBox';
 import Button from '../../atoms/CustomButton';
 import { useToast } from '../../organisms/ToastProvider';
 
-const ManageAccountDialog = ({ open, onClose, user }) => {
+import {
+  updateMyName,
+  updateMyEmail,
+  updateMyPassword,
+  getMe,
+} from '../../../services/modules/auth.api';
+import { getAuth, saveAuth } from '../../../lib/authStorage';
+
+const ManageAccountDialog = ({ open, onClose, user, onUserUpdated }) => {
   const { showToast } = useToast();
 
-  const [step, setStep] = React.useState<'edit' | 'confirm'>('edit');
+  const [step, setStep] = React.useState('edit'); // 'edit' | 'confirm'
+  const [loading, setLoading] = React.useState(false);
 
   // Section toggles
   const [updateName, setUpdateName] = React.useState(false);
@@ -34,10 +43,10 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
   const [passwordCurrent, setPasswordCurrent] = React.useState('');
   const [passwordNew, setPasswordNew] = React.useState('');
 
-  // Reset form when dialog opens/closes
   React.useEffect(() => {
     if (open) {
       setStep('edit');
+      setLoading(false);
       setUpdateName(false);
       setUpdateEmail(false);
       setUpdatePassword(false);
@@ -50,15 +59,12 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
   }, [open, user]);
 
   const handleCancel = () => {
+    if (loading) return;
     onClose?.();
   };
 
   const buildPayloads = () => {
-    const payloads: {
-      namePayload?: { name: string };
-      emailPayload?: { newEmail: string; currentPassword: string };
-      passwordPayload?: { currentPassword: string; newPassword: string };
-    } = {};
+    const payloads = {};
 
     if (updateName) {
       payloads.namePayload = { name };
@@ -80,27 +86,27 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
   };
 
   const handleNext = () => {
-    const payloads = buildPayloads();
+    const { namePayload, emailPayload, passwordPayload } = buildPayloads();
 
-    const wantsSomething =
-      payloads.namePayload || payloads.emailPayload || payloads.passwordPayload;
-
-    if (!wantsSomething) {
+    if (!namePayload && !emailPayload && !passwordPayload) {
       showToast('Select at least one thing to update.', 'warning');
       return;
     }
 
-    // Simple client-side validation (no API)
-    if (payloads.emailPayload) {
-      if (!payloads.emailPayload.newEmail || !payloads.emailPayload.currentPassword) {
+    if (emailPayload) {
+      if (!emailPayload.newEmail || !emailPayload.currentPassword) {
         showToast('Fill both new email and current password.', 'warning');
         return;
       }
     }
 
-    if (payloads.passwordPayload) {
-      if (!payloads.passwordPayload.currentPassword || !payloads.passwordPayload.newPassword) {
+    if (passwordPayload) {
+      if (!passwordPayload.currentPassword || !passwordPayload.newPassword) {
         showToast('Fill both current and new password.', 'warning');
+        return;
+      }
+      if (passwordPayload.newPassword.length < 8) {
+        showToast('New password must be at least 8 characters.', 'warning');
         return;
       }
     }
@@ -109,19 +115,98 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
   };
 
   const handleBack = () => {
+    if (loading) return;
     setStep('edit');
   };
 
-  const handleConfirm = () => {
-    const payloads = buildPayloads();
+  const handleConfirm = async () => {
+    const { namePayload, emailPayload, passwordPayload } = buildPayloads();
 
-    // 🚫 No API calls here – just log and toast.
-    // Later: replace with real API integration.
-    // eslint-disable-next-line no-console
-    console.log('[ManageAccountDialog] Would submit payloads:', payloads);
+    setLoading(true);
+    const errors = [];
 
-    showToast('Account changes queued (mock). API integration coming soon.', 'success');
-    onClose?.();
+    try {
+      // 1) Call update APIs as needed
+      if (namePayload) {
+        try {
+          await updateMyName(namePayload);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Error updating name', err);
+          const msg =
+            err?.response?.data?.message ||
+            'Failed to update name. Make sure this account is not a Google-only account.';
+          errors.push(msg);
+        }
+      }
+
+      if (emailPayload) {
+        try {
+          await updateMyEmail(emailPayload);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Error updating email', err);
+          const status = err?.response?.status;
+          const msg =
+            err?.response?.data?.message ||
+            (status === 401
+              ? 'Current password is incorrect.'
+              : status === 403
+              ? 'Email change is not allowed for Google sign-in accounts.'
+              : status === 409
+              ? 'This email is already in use.'
+              : 'Failed to update email.');
+          errors.push(msg);
+        }
+      }
+
+      if (passwordPayload) {
+        try {
+          await updateMyPassword(passwordPayload);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Error updating password', err);
+          const status = err?.response?.status;
+          const msg =
+            err?.response?.data?.message ||
+            (status === 401
+              ? 'Current password is incorrect.'
+              : status === 403
+              ? 'Password change is not allowed for Google sign-in accounts.'
+              : 'Failed to update password.');
+          errors.push(msg);
+        }
+      }
+
+      // 2) Always try to refresh user data if any update section was selected
+      if (namePayload || emailPayload || passwordPayload) {
+        try {
+          const freshUser = await getMe();
+          const { token } = getAuth();
+
+          if (token && freshUser) {
+            saveAuth({ token, user: freshUser });
+          }
+
+          if (freshUser) {
+            onUserUpdated?.(freshUser);
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Error fetching latest user with getMe()', err);
+          // non-fatal: just means UI might be a bit stale
+        }
+      }
+
+      if (errors.length === 0) {
+        showToast('Account updated successfully.', 'success');
+        onClose?.();
+      } else {
+        showToast(errors.join(' '), 'error');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderEditStep = () => (
@@ -157,7 +242,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
           label="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          disabled={!updateName}
+          disabled={!updateName || loading}
         />
       </SurfaceCard>
 
@@ -195,7 +280,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
             type="email"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
-            disabled={!updateEmail}
+            disabled={!updateEmail || loading}
           />
           <TextField
             fullWidth
@@ -204,7 +289,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
             type="password"
             value={emailCurrentPassword}
             onChange={(e) => setEmailCurrentPassword(e.target.value)}
-            disabled={!updateEmail}
+            disabled={!updateEmail || loading}
           />
         </FlexBox>
       </SurfaceCard>
@@ -243,7 +328,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
             type="password"
             value={passwordCurrent}
             onChange={(e) => setPasswordCurrent(e.target.value)}
-            disabled={!updatePassword}
+            disabled={!updatePassword || loading}
           />
           <TextField
             fullWidth
@@ -252,7 +337,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
             type="password"
             value={passwordNew}
             onChange={(e) => setPasswordNew(e.target.value)}
-            disabled={!updatePassword}
+            disabled={!updatePassword || loading}
           />
         </FlexBox>
       </SurfaceCard>
@@ -265,8 +350,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
     return (
       <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Typography variant="body2" color="textSecondary">
-          Please confirm the changes you want to apply. No changes will be applied until you click
-          &quot;Confirm changes&quot;.
+          Please confirm the changes you want to apply.
         </Typography>
 
         <SurfaceCard sx={{ p: 2, borderRadius: 2 }}>
@@ -304,7 +388,7 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
                     <strong>Password:</strong> Will be updated.
                   </Typography>
                   <Typography variant="caption" color="textSecondary">
-                    Only the server will see your passwords; they will be sent hashed using HTTPS.
+                    Only the server will see your passwords; they will be transmitted over HTTPS.
                   </Typography>
                 </>
               )}
@@ -322,21 +406,21 @@ const ManageAccountDialog = ({ open, onClose, user }) => {
         {step === 'edit' ? renderEditStep() : renderConfirmStep()}
       </DialogContent>
       <DialogActions>
-        <Button variant="text" color="inherit" onClick={handleCancel}>
+        <Button variant="text" color="inherit" onClick={handleCancel} disabled={loading}>
           Cancel
         </Button>
         {step === 'confirm' && (
-          <Button variant="outlined" color="primary" onClick={handleBack}>
+          <Button variant="outlined" color="primary" onClick={handleBack} disabled={loading}>
             Back
           </Button>
         )}
         {step === 'edit' ? (
-          <Button variant="contained" color="primary" onClick={handleNext}>
+          <Button variant="contained" color="primary" onClick={handleNext} disabled={loading}>
             Review changes
           </Button>
         ) : (
-          <Button variant="contained" color="primary" onClick={handleConfirm}>
-            Confirm changes
+          <Button variant="contained" color="primary" onClick={handleConfirm} disabled={loading}>
+            {loading ? 'Saving…' : 'Confirm changes'}
           </Button>
         )}
       </DialogActions>
@@ -351,6 +435,7 @@ ManageAccountDialog.propTypes = {
     name: PropTypes.string,
     email: PropTypes.string,
   }),
+  onUserUpdated: PropTypes.func, // (updatedUser) => void
 };
 
 export default ManageAccountDialog;

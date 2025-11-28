@@ -13,6 +13,7 @@ import ManageAccountDialog from '../organisms/ManageAccountDialog';
 
 import { clearAuth, getToken, getUser } from '../../lib/authStorage';
 import { useToast } from '../organisms/ToastProvider';
+// optional: you could also use getMe() here instead of getUser()
 
 const SettingsPageTemplate = () => {
   const navigate = useNavigate();
@@ -56,9 +57,14 @@ const SettingsPageTemplate = () => {
     setIsManageAccountOpen(false);
   };
 
+  const handleUserUpdated = (updatedUser) => {
+    setUser(updatedUser);
+    // TODO: also update user in local storage/authStorage if you store it there
+    // e.g. setAuth({ user: updatedUser, token })
+  };
+
   const handleDarkModeChange = (val) => {
     setDarkMode(val);
-    // Later: persist in user profile / theme context
   };
 
   const handleCompactModeChange = (val) => {
@@ -103,11 +109,11 @@ const SettingsPageTemplate = () => {
         <ApiTokenPanel token={token || ''} />
       </FlexBox>
 
-      {/* Manage Account Dialog (frontend-only logic) */}
       <ManageAccountDialog
         open={isManageAccountOpen}
         onClose={handleManageAccountClose}
         user={user}
+        onUserUpdated={handleUserUpdated}
       />
     </DashboardLayout>
   );
