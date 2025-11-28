@@ -1,3 +1,4 @@
+// src/components/organisms/AccountInfoPanel.jsx
 import React from 'react';
 import PropTypes from 'prop-types';
 
@@ -6,7 +7,7 @@ import Typography from '../../atoms/CustomTypography';
 import FlexBox from '../../atoms/FlexBox';
 import Button from '../../atoms/CustomButton';
 
-const AccountInfoPanel = ({ user, onLogout }) => {
+const AccountInfoPanel = ({ user, onLogout, onManageAccount }) => {
   return (
     <SurfaceCard sx={{ p: 3, borderRadius: 2, mb: 3 }}>
       <Typography variant="h6" sx={{ mb: 1.5 }}>
@@ -27,7 +28,7 @@ const AccountInfoPanel = ({ user, onLogout }) => {
         >
           Name
         </Typography>
-        <Typography variant="body2">{user.name}</Typography>
+        <Typography variant="body2">{user?.name}</Typography>
       </FlexBox>
 
       <FlexBox sx={{ mb: 2 }}>
@@ -41,7 +42,7 @@ const AccountInfoPanel = ({ user, onLogout }) => {
         >
           Email
         </Typography>
-        <Typography variant="body2">{user.email}</Typography>
+        <Typography variant="body2">{user?.email}</Typography>
       </FlexBox>
 
       <FlexBox
@@ -52,7 +53,12 @@ const AccountInfoPanel = ({ user, onLogout }) => {
           gap: 2,
         }}
       >
-        <Button variant="outlined" color="primary" size="small">
+        <Button
+          variant="outlined"
+          color="primary"
+          size="small"
+          onClick={onManageAccount}
+        >
           Manage account
         </Button>
         <Button
@@ -70,10 +76,11 @@ const AccountInfoPanel = ({ user, onLogout }) => {
 
 AccountInfoPanel.propTypes = {
   user: PropTypes.shape({
-    name: PropTypes.string.isRequired,
-    email: PropTypes.string.isRequired,
-  }).isRequired,
+    name: PropTypes.string,
+    email: PropTypes.string,
+  }),
   onLogout: PropTypes.func, // () => void
+  onManageAccount: PropTypes.func, // () => void
 };
 
 export default AccountInfoPanel;
