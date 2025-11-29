@@ -51,13 +51,21 @@ services:
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
 
-  server:
-    container_name: qm-server-testing
+  # Build-only service to create the shared app image
+  app-image:
     build:
       context: ./server
       target: dev
       args:
         MODE: test
+    image: qualimind-test-server
+    command: ["true"]  # exits immediately; just ensures image build
+    networks: [qm-net]
+    profiles: ["backend"]
+
+  server:
+    container_name: qm-server-testing
+    image: qualimind-test-server
     command: ["pnpm", "prepare:testing"]
     environment:
       NODE_ENV: testing
@@ -68,6 +76,8 @@ services:
       - ./server:/app
       - /app/node_modules
     depends_on:
+      app-image:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -121,9 +131,7 @@ services:
 
   worker:
     container_name: qm-worker-testing
-    build:
-      context: ./server
-      target: dev
+    image: qualimind-test-server
     command: ["pnpm", "worker:testing"]
     environment:
       NODE_ENV: testing
@@ -136,6 +144,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-qualimind-testing}
     depends_on:
+      app-image:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
       redis:
         condition: service_healthy
       postgres:

@@ -51,32 +51,42 @@ services:
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
 
-  # ---------- Server (Express + TS) ----------
-  server:
-    container_name: qm-server-dev
+  # ---------- Shared app image builder ----------
+  app-image:
     build:
       context: ./server
       target: dev
       args:
-        MODE: dev               
-    command: ["pnpm", "prepare:dev"]   
+        MODE: dev
+    image: qualimind-dev-server
+    command: ["true"]  # exits immediately; just ensures the image is built
+    networks: [qm-net]
+    profiles: ["backend", "frontend", "r", "infra"]
+
+  # ---------- Server (Express + TS) ----------
+  server:
+    container_name: qm-server-dev
+    image: qualimind-dev-server
+    command: ["pnpm", "prepare:dev"]
     environment:
       NODE_ENV: development
       APP_ENV: development
     ports:
       - "5000:5000"
     volumes:
-      - ./server:/app          
-      - /app/node_modules   
+      - ./server:/app
+      - /app/node_modules
     depends_on:
+      app-image:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy  
+        condition: service_healthy
     networks: [qm-net]
     profiles: ["backend", "frontend", "r"]
 
- #  ---------- Frontend (React + Vite) ----------
+  # ---------- Frontend (React + Vite) ----------
   frontend:
     container_name: qm-frontend-dev
     build:
@@ -97,7 +107,7 @@ services:
     networks: [qm-net]
     profiles: ["backend", "frontend", "r", "infra"]
 
- # ---------- R Engine (plumber) ----------
+  # ---------- R Engine (plumber) ----------
   r-engine:
     container_name: qm-r-engine-dev
     build:
@@ -126,9 +136,7 @@ services:
 
   worker:
     container_name: qm-worker-dev
-    build:
-      context: ./server
-      target: dev
+    image: qualimind-dev-server
     command: ["pnpm", "worker:dev"]
     environment:
       NODE_ENV: development
@@ -141,6 +149,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-qualimind-development}
     depends_on:
+      app-image:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
       redis:
         condition: service_healthy
       postgres:

@@ -51,24 +51,34 @@ services:
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
 
+  # ---------- Shared app image builder ----------
+  app-image:
+    build:
+      context: ./server
+      target: dev
+      args:
+        MODE: predeploy
+    image: qualimind-predeploy-server
+    command: ["true"]  # exits immediately; ensures image is built
+    networks: [qm-net]
+    profiles: ["infra", "backend", "frontend", "r"]
+
   # ---------- Server (Express + TS) ----------
   server:
     container_name: qm-server-predeployment
-    build:
-      context: ./server
-      target: dev      
-      args:
-        MODE: predeploy        
-    command: ["pnpm", "prepare:predeploy"]   
+    image: qualimind-predeploy-server
+    command: ["pnpm", "prepare:predeploy"]
     environment:
       NODE_ENV: predeploy
       APP_ENV: predeploy
     ports:
       - "8000:8000"
     volumes:
-      - ./server:/app           
-      - /app/node_modules  
+      - ./server:/app
+      - /app/node_modules
     depends_on:
+      app-image:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -98,7 +108,7 @@ services:
     networks: [qm-net]
     profiles: ["infra", "backend", "frontend", "r"]
 
-# ---------- R Engine (plumber) ----------
+  # ---------- R Engine (plumber) ----------
   r-engine:
     container_name: qm-r-engine-predeployment
     build:
@@ -127,9 +137,7 @@ services:
 
   worker:
     container_name: qm-worker-predeployment
-    build:
-      context: ./server
-      target: dev
+    image: qualimind-predeploy-server
     command: ["pnpm", "worker:predeploy"]
     environment:
       NODE_ENV: predeploy
@@ -142,6 +150,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-qualimind-predeploy}
     depends_on:
+      app-image:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
       redis:
         condition: service_healthy
       postgres:
