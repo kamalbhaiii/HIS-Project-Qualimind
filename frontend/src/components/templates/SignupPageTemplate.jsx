@@ -15,6 +15,7 @@ import { signupUser } from '../../services/modules/auth.api';
 import { saveAuth } from '../../lib/authStorage';
 import { useToast } from '../organisms/ToastProvider';
 import { faMessage, faUser, faLock } from '@fortawesome/free-solid-svg-icons';
+import logoImage from '../../assets/logo.png';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -169,7 +170,11 @@ const SignUpPageTemplate = ({
             display: 'flex',
           }}
         >
-          Logo
+          <img
+            src={logoImage}
+            alt="QualiMind Logo"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          />
         </FlexBox>
 
         <Typography variant="h5" fontWeight={700}>
