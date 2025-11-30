@@ -227,7 +227,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('email')}
             error={Boolean(errors.email)}
             helperText={errors.email}
-            icon={<Icon icon={faMessage} size='sm' />}
+            //icon={<Icon icon={faMessage} size='sm' />}
             type="email"
             name="email"
             id="email"
