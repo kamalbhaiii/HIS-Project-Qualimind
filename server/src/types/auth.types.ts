@@ -8,6 +8,7 @@ export interface SignupResponseDTO {
   id: string;
   email: string;
   name?: string | null;
+  verified?: boolean | false;
 }
 
 export interface AuthUser {

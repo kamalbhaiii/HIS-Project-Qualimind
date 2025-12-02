@@ -11,6 +11,9 @@
   "frontend":{
     "url": "http://localhost:9999"
   },
+  "nodemailer":{
+    "name_from":"Qualimind-Test"
+  },
   "rService": {
     "url": "http://r-engine:8000"
   },

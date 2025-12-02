@@ -4,15 +4,14 @@ import { signupLocal, loginLocal,
   updateUserEmail,
   updateUserPassword,
   deleteUserAccount,
-  GoogleAccountNotAllowedError,
-  InvalidPasswordError
+  verifyEmailFromToken
 } from '../services/auth.service';
 import { signupSchema, loginSchema,
   updateNameSchema,
   updateEmailSchema,
   updatePasswordSchema
 } from '../validations/auth.validation';
-import { EmailAlreadyExistsError } from '../errors/auth.error';
+import { EmailAlreadyExistsError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserNotFoundError } from '../errors/auth.error';
 import { signAuthToken } from '../utils/jwt.util';
 import { PrismaClient, Prisma } from '../../prisma/.prisma/client';
 import {prisma} from '@loaders/prisma'
@@ -252,6 +251,42 @@ export async function meController(
     }
 
     return res.status(200).json(user);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function verifyEmailController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const token = req.query.token as string | undefined;
+    if (!token) {
+      return res.status(400).json({ message: 'Missing token' });
+    }
+
+    try {
+      const user = await verifyEmailFromToken(token);
+      return res.status(200).json({
+        message: 'Email verified successfully.',
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          emailVerified: user.emailVerified,
+        },
+      });
+    } catch (err) {
+      if (err instanceof InvalidOrExpiredVerificationTokenError) {
+        return res.status(400).json({ message: 'Invalid or expired token' });
+      }
+      if (err instanceof UserNotFoundError) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      throw err;
+    }
   } catch (err) {
     return next(err);
   }

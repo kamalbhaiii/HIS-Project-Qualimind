@@ -2,6 +2,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { prisma } from '@loaders/prisma';
 import cfg from '@config/index';
 import type { GoogleUserProfile, SignupResponseDTO } from '../types/auth.types';
+import { sendWelcomeMail } from '@utils/mail/mail.service';
 
 const { clientId, clientSecret, redirectUri } = cfg.googleAuth;
 
@@ -59,6 +60,10 @@ export async function handleGoogleCallback(code: string): Promise<SignupResponse
 
   const profile = await fetchGoogleUserProfile(tokens.access_token);
 
+  const existingUser = await prisma.user.findUnique({
+    where: { email: profile.email },
+  });
+
   const user = await prisma.user.upsert({
     where: {
       email: profile.email,
@@ -67,12 +72,18 @@ export async function handleGoogleCallback(code: string): Promise<SignupResponse
       email: profile.email,
       name: profile.name,
       googleId: profile.googleId,
+      emailVerified: true,
     },
     update: {
       name: profile.name ?? undefined,
       googleId: profile.googleId,
+      emailVerified: true,
     },
   });
+
+  if (!existingUser) {
+    await sendWelcomeMail(user);
+  }
 
   return {
     id: user.id,

@@ -7,6 +7,9 @@
   "frontend":{
     "url": "http://localhost:5173"
   },
+  "nodemailer":{
+    "name_from":"Qualimind-Dev"
+  },
   "rateLimit": {
     "windowMs": 60000,
     "max": 100

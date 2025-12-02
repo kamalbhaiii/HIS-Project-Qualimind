@@ -9,6 +9,12 @@ const Schema = z.object({
     url: z.string()
   }),
   frontend: z.object({ url: z.string() }),
+  nodemailer: z.object({
+    smtp_user: z.string(),
+    smtp_pass: z.string(),
+    name_from: z.string(),
+    email_from: z.string()
+  }),
   database: z.object({
     url: z.string().startsWith('postgresql://')
   }),
@@ -35,7 +41,8 @@ const cfg = Schema.parse({
   security: config.get('security'),
   googleAuth: config.get('googleAuth'),
   multer: config.get('multer'),
-  frontend: config.get('frontend')
+  frontend: config.get('frontend'),
+  nodemailer: config.get('nodemailer')
 });
 
 export default cfg;

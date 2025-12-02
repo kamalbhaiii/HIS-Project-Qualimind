@@ -6,6 +6,12 @@
   "frontend":{
     "url": "http://localhost:5173"
   },
+  "nodemailer":{
+    "smtp_user":"kamal.fuas.web@gmail.com",
+    "smtp_pass":"mfkfmvuxfukpnape",
+    "name_from":"Qualimind",
+    "email_from":"kamal.fuas.web@gmail.com" 
+  },
   "rateLimit": {
     "windowMs": 60000,
     "max": 100

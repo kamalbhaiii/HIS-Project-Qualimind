@@ -4,7 +4,8 @@ import { signupController, loginController,
   updateEmailController,
   updatePasswordController,
   deleteAccountController,
-  meController
+  meController,
+  verifyEmailController
 } from '../controllers/auth.controller';
 import {
   googleAuthUrlController,
@@ -40,5 +41,8 @@ router.get('/me', authMiddleware, meController);
 
 // DELETE /auth/me
 router.delete('/me', authMiddleware, deleteAccountController);
+
+// GET /auth/verify-email
+router.get('/verify-email', verifyEmailController);
 
 export default router;

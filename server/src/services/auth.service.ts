@@ -3,8 +3,11 @@ import { prisma } from '@loaders/prisma';
 import type { SignupRequestDTO, SignupResponseDTO } from '../types/auth.types';
 import bcrypt from 'bcryptjs';
 import type { SignupInput } from '../validations/auth.validation';
-import { EmailAlreadyExistsError } from '../errors/auth.error';
+import { AccountNotVerifiedError, EmailAlreadyExistsError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserAlreadyVerifiedError, UserNotFoundError } from '../errors/auth.error';
 import { deleteDataset } from '../services/dataset.service'; 
+import { signAuthToken, verifyAuthToken } from '@utils/jwt.util';
+import { buildEmailVerificationUrl } from '@utils/url.util';
+import { sendAccountVerifiedMail, sendEmailVerificationMail, sendWelcomeMail } from '@utils/mail/mail.service';
 
 const SALT_ROUNDS = 10;
 
@@ -15,32 +18,95 @@ export async function signupLocal(data: SignupRequestDTO): Promise<SignupRespons
     throw new Error('Password is required');
   }
 
-  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+  const existing = await prisma.user.findUnique({
+    where: { email },
+  });
 
-  try {
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name,
-        passwordHash,
-      },
-    });
-
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-    };
-  } catch (err: any) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      if (Array.isArray(err.meta?.target) && err.meta?.target.includes('email')) {
-        throw new EmailAlreadyExistsError();
-      }
-
+  if (existing) {
+    if (existing.googleId) {
+      // Google accounts are already verified; cannot signup using password
       throw new EmailAlreadyExistsError();
     }
-    throw err;
+
+    // Case B: Local account & already verified → block signup
+    if (existing.emailVerified) {
+      throw new EmailAlreadyExistsError();
+    }
+
+    // Not verified -> resend verification email and tell client
+    const token = signAuthToken(existing); // contains user.id in sub
+    const verificationUrl = buildEmailVerificationUrl(token);
+
+    // fire-and-forget is ok, but we'll await here for clarity
+    await sendEmailVerificationMail(existing, verificationUrl);
+
+    // Let controller map this to a 409 with a clear message
+    throw new AccountNotVerifiedError();
   }
+
+  // 🔹 2) Create a new user with emailVerified = false
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+  const user = await prisma.user.create({
+    data: {
+      email,
+      name,
+      passwordHash,
+      emailVerified: false,
+    },
+  });
+
+  // Build verification token & URL
+  const token = signAuthToken(user);
+  const verificationUrl = buildEmailVerificationUrl(token);
+
+  await sendEmailVerificationMail(user, verificationUrl);
+  await sendWelcomeMail(user);
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    verified: user.emailVerified
+  };
+}
+
+export async function verifyEmailFromToken(token: string) {
+  let payload: any;
+  try {
+    payload = verifyAuthToken(token);
+  } catch (err) {
+    throw new InvalidOrExpiredVerificationTokenError();
+  }
+
+  const userId = payload?.sub;
+  if (!userId) {
+    throw new InvalidOrExpiredVerificationTokenError();
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw new UserNotFoundError();
+  }
+
+  if (user.emailVerified) {
+    throw new UserAlreadyVerifiedError();
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      emailVerified: true,
+    },
+  });
+
+  // TODO: Add Email verified logic
+  await sendAccountVerifiedMail(updated);
+
+  return updated;
 }
 
 export async function loginLocal(email: string, password: string): Promise<SignupResponseDTO> {
@@ -62,21 +128,8 @@ export async function loginLocal(email: string, password: string): Promise<Signu
     id: user.id,
     email: user.email,
     name: user.name,
+    verified: user.emailVerified
   };
-}
-
-export class GoogleAccountNotAllowedError extends Error {
-  constructor() {
-    super('Operation not allowed for Google sign-in accounts');
-    this.name = 'GoogleAccountNotAllowedError';
-  }
-}
-
-export class InvalidPasswordError extends Error {
-  constructor() {
-    super('INVALID_PASSWORD');
-    this.name = 'InvalidPasswordError';
-  }
 }
 
 export async function updateUserName(
