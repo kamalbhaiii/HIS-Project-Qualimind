@@ -210,7 +210,7 @@ const SignUpPageTemplate = ({
           onBlur={handleBlur('name')}
           error={Boolean(errors.name)}
           helperText={errors.name}
-          //cicon={<Icon icon={faUser} size='sm'/>}
+          //icon={<Icon icon={faUser} size='sm'/>}
           name="name"
           id="name"
           required
