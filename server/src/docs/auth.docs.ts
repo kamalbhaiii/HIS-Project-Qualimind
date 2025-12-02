@@ -302,6 +302,76 @@ export const authPaths = {
     },
   },
 
+  '/api/auth/verify-email': {
+  get: {
+    summary: 'Verify user email address',
+    description:
+      'Verifies a user’s email using a verification token sent via email. Marks the account as emailVerified=true. Also sends a “Account Verified Successfully” confirmation email.',
+    tags: ['Auth'],
+    parameters: [
+      {
+        name: 'token',
+        in: 'query',
+        required: true,
+        description: 'Email verification token.',
+        schema: {
+          type: 'string',
+        },
+      },
+    ],
+    responses: {
+      200: {
+        description: 'Email verified successfully.',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                message: {
+                  type: 'string',
+                  example: 'Email verified successfully.',
+                },
+                user: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    email: { type: 'string', format: 'email' },
+                    name: { type: 'string', nullable: true },
+                    emailVerified: { type: 'boolean', example: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      400: {
+        description: 'Missing or invalid token.',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                message: { type: 'string', example: 'Invalid or expired token.' },
+              },
+            },
+          },
+        },
+      },
+      404: {
+        description: 'User not found for the given token.',
+      },
+      409: {
+        description: 'Email already verified.',
+      },
+      500: {
+        description: 'Internal server error.',
+      },
+    },
+  },
+},
+
+
   // -------------------------------------------------------------------
   // AUTHENTICATED USER ENDPOINTS (/me)
   // -------------------------------------------------------------------
