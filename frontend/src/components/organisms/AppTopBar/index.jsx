@@ -13,6 +13,8 @@ const AppTopBar = ({ title, onMenuClick, onProfileClick }) => {
       position="fixed"
       sx={{
         zIndex: (theme) => theme.zIndex.drawer + 1,
+        backgroundColor: '#00000061', 
+        border: '3px solid black',
       }}
       color="normal"
       elevation={1}

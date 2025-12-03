@@ -265,7 +265,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('confirmPassword')}
             error={Boolean(errors.confirmPassword)}
             helperText={errors.confirmPassword}
-            icon={<Icon icon={faLock} size='sm' />}
+            // icon={<Icon icon={faLock} size='sm' />}
             type="password"
             name="confirmPassword"
             required

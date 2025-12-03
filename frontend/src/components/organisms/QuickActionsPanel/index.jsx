@@ -7,7 +7,8 @@ import FlexBox from '../../atoms/FlexBox';
 
 const QuickActionsPanel = ({ onUploadDataset, onViewJobs }) => {
   return (
-    <SurfaceCard sx={{ p: 3, borderRadius: 2 }}>
+    <SurfaceCard sx={{ p: 3, borderRadius: 2, mt: 6
+ }}>
       <Typography variant="h6" sx={{ mb: 1.5 }}>
         Get started
       </Typography>

@@ -14,6 +14,7 @@ import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
 import SettingsIcon from '@mui/icons-material/Settings';
 import Logo from '../atoms/Logo';
 import LogoImage from "../../assets/logo.png"
+import Box from '@mui/material/Box';
 
 const DashboardLayout = ({ children }) => {
   // 🔧 IMPORTANT: adjust these paths to match your auto-routed URLs
@@ -53,26 +54,37 @@ const DashboardLayout = ({ children }) => {
       }}
     >
       {/* Sidebar */}
-      <SidebarNav
-        items={navItems}
-        headerContent={
-          <SurfaceCard
-            elevation={0}
-            sx={{
-              mt: 1,
-              mx: 2,
-              px: 2,
-              py: 1.5,
-              borderRadius: 2,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
-            }}
-          >
-            <Logo size={32} src={LogoImage}/>
-          </SurfaceCard>
-        }
+<SidebarNav
+  items={navItems}
+  headerContent={
+    <SurfaceCard
+      elevation={0}
+      sx={{
+        mt: 0,
+        mx: 2,
+        p: 0,
+        borderRadius: 2,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+      }}
+    >
+      <Box
+        component="img"
+        src={LogoImage}
+        alt="Logo"
+        sx={{
+          width: 120,
+          height: 64,
+          objectFit: 'contain',   // preserve aspect ratio
+          display: 'block',
+          mx: 'auto'
+        }}
       />
+    </SurfaceCard>
+  }
+/>
 
       {/* Main area */}
       <FlexBox sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
