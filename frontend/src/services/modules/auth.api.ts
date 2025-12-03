@@ -50,3 +50,13 @@ export const updateMyPassword = async ({ currentPassword, newPassword }) => {
   });
   return res.data; // 204 No Content -> usually empty, but axios gives {}
 };
+
+export const resendVerificationMail = async () => {
+  const res = api.get('/auth/verify-email/resend')
+  return res.data
+}
+
+export const verifyEmail = async (token) => {
+  const res = await api.get(`/auth/verify-email?token=${token}`)
+  return res.data;
+}

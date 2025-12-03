@@ -3,7 +3,7 @@ import { prisma } from '@loaders/prisma';
 import type { SignupRequestDTO, SignupResponseDTO } from '../types/auth.types';
 import bcrypt from 'bcryptjs';
 import type { SignupInput } from '../validations/auth.validation';
-import { AccountNotVerifiedError, EmailAlreadyExistsError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserAlreadyVerifiedError, UserNotFoundError } from '../errors/auth.error';
+import { AccountNotVerifiedError, EmailAlreadyExistsError, EmailAlreadyVerifiedError, GoogleAccountCannotResendError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserAlreadyVerifiedError, UserNotFoundError } from '../errors/auth.error';
 import { deleteDataset } from '../services/dataset.service'; 
 import { signAuthToken, verifyAuthToken } from '@utils/jwt.util';
 import { buildEmailVerificationUrl } from '@utils/url.util';
@@ -242,4 +242,28 @@ export async function deleteUserAccount(userId: string): Promise<void> {
   await prisma.user.delete({
     where: { id: userId },
   });
+}
+
+export async function resendVerificationEmail(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw new UserNotFoundError();
+  }
+
+  // Google accounts are already verified via Google
+  if (user.googleId) {
+    throw new GoogleAccountCannotResendError();
+  }
+
+  if (user.emailVerified) {
+    throw new EmailAlreadyVerifiedError();
+  }
+
+  const token = signAuthToken(user);
+  const verificationUrl = buildEmailVerificationUrl(token);
+
+  await sendEmailVerificationMail(user, verificationUrl);
 }

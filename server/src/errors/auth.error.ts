@@ -44,3 +44,17 @@ export class InvalidPasswordError extends Error {
     this.name = 'InvalidPasswordError';
   }
 }
+
+export class EmailAlreadyVerifiedError extends Error {
+  constructor() {
+    super('EMAIL_ALREADY_VERIFIED');
+    this.name = 'EmailAlreadyVerifiedError';
+  }
+}
+
+export class GoogleAccountCannotResendError extends Error {
+  constructor() {
+    super('GOOGLE_ACCOUNT_CANNOT_RESEND');
+    this.name = 'GoogleAccountCannotResendError';
+  }
+}

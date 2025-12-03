@@ -4,15 +4,16 @@ import { signupLocal, loginLocal,
   updateUserEmail,
   updateUserPassword,
   deleteUserAccount,
-  verifyEmailFromToken
+  verifyEmailFromToken,
+  resendVerificationEmail
 } from '../services/auth.service';
 import { signupSchema, loginSchema,
   updateNameSchema,
   updateEmailSchema,
   updatePasswordSchema
 } from '../validations/auth.validation';
-import { EmailAlreadyExistsError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserNotFoundError } from '../errors/auth.error';
-import { signAuthToken } from '../utils/jwt.util';
+import { EmailAlreadyExistsError, EmailAlreadyVerifiedError, GoogleAccountCannotResendError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserNotFoundError } from '../errors/auth.error';
+import { signAuthToken, verifyAuthToken } from '../utils/jwt.util';
 import { PrismaClient, Prisma } from '../../prisma/.prisma/client';
 import {prisma} from '@loaders/prisma'
 
@@ -285,6 +286,47 @@ export async function verifyEmailController(
       if (err instanceof UserNotFoundError) {
         return res.status(404).json({ message: 'User not found' });
       }
+      throw err;
+    }
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function resendVerificationEmailController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const token = req.headers?.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const user = verifyAuthToken(token)
+
+    try {
+      await resendVerificationEmail(user.sub);
+      return res.status(200).json({
+        message: 'Verification email sent successfully.',
+      });
+    } catch (err) {
+      if (err instanceof UserNotFoundError) {
+        return res.status(404).json({ message: 'User not found.' });
+      }
+
+      if (err instanceof EmailAlreadyVerifiedError) {
+        return res.status(409).json({ message: 'Email is already verified.' });
+      }
+
+      if (err instanceof GoogleAccountCannotResendError) {
+        return res.status(403).json({
+          message: 'Google sign-in accounts do not require email verification.',
+        });
+      }
+
       throw err;
     }
   } catch (err) {

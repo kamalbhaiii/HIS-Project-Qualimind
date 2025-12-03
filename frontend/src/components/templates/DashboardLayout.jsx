@@ -1,10 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 
 import FlexBox from '../atoms/FlexBox';
 import SurfaceCard from '../atoms/SurfaceCard';
-import Typography from '../atoms/CustomTypography';
-
 import AppTopBar from '../organisms/AppTopBar';
 import SidebarNav, { SIDEBAR_WIDTH } from '../organisms/SideBarNav';
 
@@ -13,16 +11,49 @@ import StorageIcon from '@mui/icons-material/Storage';
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
 import SettingsIcon from '@mui/icons-material/Settings';
 import Logo from '../atoms/Logo';
-import LogoImage from "../../assets/logo.png"
+import LogoImage from '../../assets/logo.png';
+
+import { getAuth } from '../../lib/authStorage';
+import AccountVerificationBar from '../molecules/AccountVerificationBar';
+import { useToast } from '../organisms/ToastProvider';
+import {resendVerificationMail} from '../../services/modules/auth.api'
+// import { requestEmailVerification } from '../../services/modules/auth.api';
 
 const DashboardLayout = ({ children }) => {
-  // 🔧 IMPORTANT: adjust these paths to match your auto-routed URLs
+  const [showVerificationBar, setShowVerificationBar] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    const { user } = getAuth();
+    if (user && user.verified === false) {
+      setShowVerificationBar(true);
+    } else {
+      setShowVerificationBar(false);
+    }
+  }, []);
+
+  const handleVerifyClick = async () => {
+    try {
+      setVerifyLoading(true);
+      await resendVerificationMail();
+      showToast('Verification email sent. Please check your inbox.', 'success');
+    } catch (err) {
+      const message =
+        err?.response?.data?.message || 'Failed to send verification email.';
+      showToast(message, 'error');
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
   const navItems = [
     {
       key: 'dashboard',
       label: 'Dashboard',
       icon: <DashboardIcon />,
-      to: '/dashboard', 
+      to: '/dashboard',
     },
     {
       key: 'datasets',
@@ -69,7 +100,7 @@ const DashboardLayout = ({ children }) => {
               gap: 1.5,
             }}
           >
-            <Logo size={32} src={LogoImage}/>
+            <Logo size={32} src={LogoImage} />
           </SurfaceCard>
         }
       />
@@ -85,8 +116,17 @@ const DashboardLayout = ({ children }) => {
             p: 3,
             mt: 8, // space for AppBar
             width: { md: `calc(115% - ${SIDEBAR_WIDTH}px)` },
+            flexDirection: 'column',
+            gap: 2,
           }}
         >
+          {showVerificationBar && (
+            <AccountVerificationBar
+              onVerifyClick={handleVerifyClick}
+              loading={verifyLoading}
+            />
+          )}
+
           {children}
         </FlexBox>
       </FlexBox>
