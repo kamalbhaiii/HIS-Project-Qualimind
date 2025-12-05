@@ -1,8 +1,11 @@
+import DashboardLayout from "../../components/templates/DashboardLayout";
 import JobsPageTemplate from "../../components/templates/JobsPageTemplate";
 import ProtectedRoute from "../../routes/ProtectedRoute";
 
 export default function Jobs() {
   return <ProtectedRoute>
-    <JobsPageTemplate />
+    <DashboardLayout activeKey="jobs">
+      <JobsPageTemplate />
+    </DashboardLayout>
   </ProtectedRoute>;
 }

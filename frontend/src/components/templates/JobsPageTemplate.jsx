@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 
-import DashboardLayout from '../../components/templates/DashboardLayout';
+import DashboardLayout, { useDashboard } from '../../components/templates/DashboardLayout';
 import DashboardSectionHeader from '../../components/molecules/DashboardSectionHeader';
 import FlexBox from '../../components/atoms/FlexBox';
 
@@ -46,30 +46,10 @@ const JobsPageTemplate = ({ onNavigate }) => {
   const navigate = useNavigate();
 
   const [filterStatus, setFilterStatus] = useState('ALL');
-  const [jobs, setJobs] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  // Fetch jobs from API
-  const fetchJobs = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const res = await getJobs(); // expects an array as per your sample
-      setJobs(res || []);
-    } catch (err) {
-      const msg = err?.message || 'Failed to fetch jobs';
-      setError(msg);
-      showToast?.(msg, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+  // const [jobs, setJobs] = useState([]);
+  // const [loading, setLoading] = useState(false);
+  // const [error, setError] = useState(null);
+  const {jobs, setJobs, loading, setLoading, error, setError} = useDashboard();
 
   // Map API jobs -> UI jobs (format dates & duration)
   const uiJobs = useMemo(
@@ -140,7 +120,7 @@ const JobsPageTemplate = ({ onNavigate }) => {
   };
 
   return (
-    <DashboardLayout activeKey="jobs" onNavigate={onNavigate}>
+    <>
       <DashboardSectionHeader
         title="Jobs"
         subtitle="Monitor and inspect your preprocessing jobs"
@@ -173,7 +153,7 @@ const JobsPageTemplate = ({ onNavigate }) => {
         onViewJob={handleViewJob}
         onDeleteJob={handleDeleteJob}
       />
-    </DashboardLayout>
+    </>
   );
 };
 

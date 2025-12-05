@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import DashboardLayout from './DashboardLayout';
+import DashboardLayout, { useDashboard } from './DashboardLayout';
 import FlexBox from '../atoms/FlexBox';
 import DashboardStatsOverview from '../organisms/DashboardStatsOverview';
 import DatasetListTable from '../organisms/DatasetListTable';
@@ -10,33 +10,10 @@ import {deleteDatasetByID, getDatasets} from '../../services/modules/dataset.api
 import { useToast } from '../organisms/ToastProvider';
 
 const DatasetsPageTemplate = () => {
-  const [datasets, setDatasets] = React.useState([]); 
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
+  const {datasets, setDatasets, loading, setLoading, error, setError} = useDashboard();
 
   const navigate = useNavigate();
   const {showToast} = useToast();
-
-  const fetchDatasets = React.useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const res = await getDatasets();
-
-      const data = await res
-      setDatasets(data);
-    } catch (err) {
-      showToast(err.message || 'Failed to fetch datasets', 'error')
-      setError(err.message || 'Failed to fetch datasets');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    fetchDatasets();
-  }, [fetchDatasets]);
 
   const formatBytes = (bytes) => {
     if (!Number.isFinite(bytes)) return '-';
@@ -134,7 +111,7 @@ const DatasetsPageTemplate = () => {
   }
 
   return (
-    <DashboardLayout activeKey="datasets">
+    <>
       <DashboardStatsOverview stats={stats} />
 
       <DashboardSectionHeader
@@ -168,8 +145,8 @@ const DatasetsPageTemplate = () => {
 
         <DatasetUploadPanel onMockUpload={handleUpload} />
       </FlexBox>
-    </DashboardLayout>
-  );
+    </>
+    );
 };
 
 export default DatasetsPageTemplate;

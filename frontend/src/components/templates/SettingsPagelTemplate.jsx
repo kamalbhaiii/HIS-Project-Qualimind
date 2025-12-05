@@ -76,7 +76,7 @@ const SettingsPageTemplate = () => {
   };
 
   return (
-    <DashboardLayout activeKey="settings">
+    <>
       <DashboardSectionHeader
         title="Settings"
         subtitle="Manage your account details and personal preferences"
@@ -115,7 +115,7 @@ const SettingsPageTemplate = () => {
         user={user}
         onUserUpdated={handleUserUpdated}
       />
-    </DashboardLayout>
+    </>
   );
 };
 

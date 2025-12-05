@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 
 import FlexBox from '../atoms/FlexBox';
@@ -13,26 +13,71 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import Logo from '../atoms/Logo';
 import LogoImage from '../../assets/logo.png';
 
-import { getAuth } from '../../lib/authStorage';
+import { getAuth, getToken, saveAuth } from '../../lib/authStorage';
 import AccountVerificationBar from '../molecules/AccountVerificationBar';
 import { useToast } from '../organisms/ToastProvider';
-import {resendVerificationMail} from '../../services/modules/auth.api'
+import {getMe, resendVerificationMail} from '../../services/modules/auth.api'
+import { getJobs } from '../../services/modules/job.api';
+import { getDatasets } from '../../services/modules/dataset.api';
 // import { requestEmailVerification } from '../../services/modules/auth.api';
+
+export const DashboardContext = createContext(null);
+export const useDashboard = () => useContext(DashboardContext);
 
 const DashboardLayout = ({ children }) => {
   const [showVerificationBar, setShowVerificationBar] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [me, setMe] = useState()
+  const [jobs, setJobs] = useState([]);
+  const [datasets, setDatasets] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const { showToast } = useToast();
 
   useEffect(() => {
-    const { user } = getAuth();
-    if (user && user.verified === false) {
-      setShowVerificationBar(true);
-    } else {
-      setShowVerificationBar(false);
-    }
+    const fetchMe = async () => {
+      const token = getToken();
+      const user = await getMe();
+      setMe(user);
+
+      if (user && user.emailVerified === false) {
+        saveAuth({token, user});
+        setShowVerificationBar(true);
+      } else {
+        setShowVerificationBar(false);
+      }
+    };
+
+    fetchMe();
   }, []);
+
+  useEffect(()=>{
+    if(me && me.id) {
+      const fetchData = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+  
+          const [jobsRes, datasetsRes] = await Promise.all([
+            getJobs(),
+            getDatasets(),
+          ]);
+  
+          setJobs(jobsRes || []);
+          setDatasets(datasetsRes || []);
+        } catch (err) {
+          const msg = err?.message || 'Failed to load dashboard data';
+          setError(msg);
+          showToast?.(msg, 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+  
+      fetchData();
+    }
+  },[me])
 
   const handleVerifyClick = async () => {
     try {
@@ -76,7 +121,10 @@ const DashboardLayout = ({ children }) => {
   ];
 
   return (
-    <FlexBox
+    <DashboardContext.Provider 
+      value={{me, setMe, showVerificationBar, setShowVerificationBar, verifyLoading, setVerifyLoading, jobs, setJobs, datasets, setDatasets, loading, setLoading, error, setError}}
+    >
+      <FlexBox
       sx={{
         display: 'flex',
         minHeight: '100vh',
@@ -131,6 +179,7 @@ const DashboardLayout = ({ children }) => {
         </FlexBox>
       </FlexBox>
     </FlexBox>
+    </DashboardContext.Provider>
   );
 };
 

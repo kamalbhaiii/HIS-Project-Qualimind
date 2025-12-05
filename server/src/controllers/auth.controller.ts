@@ -244,7 +244,7 @@ export async function meController(
 
     const user = await prisma.user.findUnique({
       where: { id: authUser.sub },
-      select: { id: true, email: true, name: true, googleId: true, createdAt: true },
+      select: { id: true, email: true, name: true, googleId: true, createdAt: true, emailVerified:true },
     });
 
     if (!user) {
