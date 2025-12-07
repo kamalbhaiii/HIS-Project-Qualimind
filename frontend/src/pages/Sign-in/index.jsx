@@ -4,7 +4,6 @@ import UnprotectedRoute from "../../routes/UnprotectedRoute";
 import { useGoogleAuthRedirect } from "../../hooks/useGoogleAuth";
 import {useToast} from '../../components/organisms/ToastProvider';
 import { useEffect } from "react";
-import {forgetPassword} from '../../services/modules/auth.api'
 
 export default function Signin() {
     const navigate = useNavigate();
@@ -23,6 +22,6 @@ export default function Signin() {
 
   const { startGoogleAuth } = useGoogleAuthRedirect();
   return <UnprotectedRoute>
-    <SignInPageTemplate onSignUp={()=>{navigate("/sign-up")}} onGoogleSignIn={startGoogleAuth} onForgotPassword={()=>alert('Forgot Password clicked')} />
+    <SignInPageTemplate onSignUp={()=>{navigate("/sign-up")}} onGoogleSignIn={startGoogleAuth} onForgotPassword={()=>navigate("/forget-password")} />
   </UnprotectedRoute>
 }
