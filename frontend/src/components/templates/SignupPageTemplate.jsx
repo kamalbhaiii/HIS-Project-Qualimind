@@ -255,8 +255,8 @@ const SignUpPageTemplate = ({
           />
         </FlexBox>
 
-        {/* Confirm Password */}
-        <FlexBox mt={2}>
+        {/* Confirm Password */}          
+        <FlexBox mt={2} mb={2}>
           <InputFieldWithLabel
             label="Confirm Password"
             placeholder="Re-enter your password"
