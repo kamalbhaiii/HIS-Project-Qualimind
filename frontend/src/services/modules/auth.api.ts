@@ -60,3 +60,8 @@ export const verifyEmail = async (token) => {
   const res = await api.get(`/auth/verify-email?token=${token}`)
   return res.data;
 }
+
+export const forgetPassword = async ({ email }) => {
+  const res = await api.post('/auth/forget-password', { email });
+  return res.data;
+}

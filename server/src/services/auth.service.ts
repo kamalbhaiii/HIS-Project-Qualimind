@@ -7,7 +7,8 @@ import { AccountNotVerifiedError, EmailAlreadyExistsError, EmailAlreadyVerifiedE
 import { deleteDataset } from '../services/dataset.service'; 
 import { signAuthToken, verifyAuthToken } from '@utils/jwt.util';
 import { buildEmailVerificationUrl } from '@utils/url.util';
-import { sendAccountVerifiedMail, sendEmailVerificationMail, sendWelcomeMail } from '@utils/mail/mail.service';
+import { sendAccountVerifiedMail, sendEmailVerificationMail, sendWelcomeMail, sendPasswordResetMail } from '@utils/mail/mail.service';
+import { buildPasswordResetUrl } from '../utils/url.util';
 
 const SALT_ROUNDS = 10;
 
@@ -266,4 +267,23 @@ export async function resendVerificationEmail(userId: string): Promise<void> {
   const verificationUrl = buildEmailVerificationUrl(token);
 
   await sendEmailVerificationMail(user, verificationUrl);
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!user) {
+    return;
+  }
+
+  if (!user.passwordHash) {
+    return;
+  }
+
+  const token = signAuthToken(user);
+  const resetUrl = buildPasswordResetUrl(token);
+
+  await sendPasswordResetMail(user, resetUrl);
 }

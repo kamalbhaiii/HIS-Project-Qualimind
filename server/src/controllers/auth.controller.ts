@@ -5,7 +5,8 @@ import { signupLocal, loginLocal,
   updateUserPassword,
   deleteUserAccount,
   verifyEmailFromToken,
-  resendVerificationEmail
+  resendVerificationEmail,
+  requestPasswordReset
 } from '../services/auth.service';
 import { signupSchema, loginSchema,
   updateNameSchema,
@@ -329,6 +330,31 @@ export async function resendVerificationEmailController(
 
       throw err;
     }
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function forgetPasswordController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { email } = req.body as { email?: string };
+
+    if (!email) {
+      return res.status(400).json({
+        message: 'Email is required.',
+      });
+    }
+
+    await requestPasswordReset(email);
+
+    return res.status(200).json({
+      message:
+        'If an account exists for this email, a password reset link has been sent.',
+    });
   } catch (err) {
     return next(err);
   }

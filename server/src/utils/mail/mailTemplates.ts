@@ -228,3 +228,106 @@ If this wasn't you, please contact support immediately.
 
   return { subject, html, text };
 }
+
+export function buildPasswordResetEmail(
+  name: string | null | undefined,
+  resetUrl: string
+) {
+  const safeName = name || 'there';
+  const year = new Date().getFullYear();
+  const appName = 'QualiMind';
+
+  const subject = `Reset your ${appName} password`;
+
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+    <head>
+      <meta charSet="UTF-8" />
+      <meta name="viewport" content="width=device-width,initial-scale=1" />
+      <title>${subject}</title>
+    </head>
+    <body style="margin:0;padding:0;background:#f4f5fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="padding:24px 0;">
+        <tr>
+          <td align="center">
+            <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
+              <tr>
+                <td style="padding:12px 16px 8px;font-size:14px;color:#6b7280;text-align:center;">
+                  <strong style="color:#4f46e5;">${appName}</strong>
+                </td>
+              </tr>
+
+              <tr>
+                <td style="background:#ffffff;border-radius:16px;padding:24px 24px 20px;box-shadow:0 12px 30px rgba(15,23,42,0.08);">
+                  <h1 style="margin:0 0 8px;font-size:22px;color:#111827;">
+                    Reset your password
+                  </h1>
+
+                  <p style="margin:0 0 16px;font-size:14px;color:#6b7280;line-height:1.5;">
+                    Hi ${safeName},<br/>
+                    We received a request to reset the password for your <strong>${appName}</strong> account.
+                    If you made this request, click the button below to choose a new password.
+                  </p>
+
+                  <table border="0" cellspacing="0" cellpadding="0" style="margin:0 0 16px;">
+                    <tr>
+                      <td align="center" bgcolor="#4f46e5" style="border-radius:999px;">
+                        <a href="${resetUrl}"
+                           style="display:inline-block;padding:10px 22px;border-radius:999px;font-size:14px;color:#ffffff;text-decoration:none;font-weight:500;">
+                          Reset password
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <p style="margin:0 0 8px;font-size:12px;color:#6b7280;line-height:1.5;">
+                    If the button above doesn’t work, copy and paste this URL into your browser:
+                  </p>
+                  <p style="margin:0 0 16px;font-size:11px;color:#6b7280;word-break:break-all;">
+                    <a href="${resetUrl}" style="color:#4f46e5;text-decoration:none;">
+                      ${resetUrl}
+                    </a>
+                  </p>
+
+                  <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5;">
+                    If you didn’t request a password reset, you can safely ignore this email—
+                    your password will stay the same.
+                  </p>
+                </td>
+              </tr>
+
+              <tr>
+                <td style="padding:16px 8px 0;font-size:11px;color:#6b7280;text-align:center;">
+                  You’re receiving this email because you have an account on ${appName}.
+                  If this wasn’t you, please contact support.
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:4px 8px 0;font-size:11px;color:#6b7280;text-align:center;">
+                  &copy; ${year} ${appName}. All rights reserved.
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+  </html>
+  `;
+
+  const text = `Reset your ${appName} password
+
+Hi ${safeName},
+
+We received a request to reset the password for your ${appName} account.
+
+If you made this request, open this link to choose a new password:
+${resetUrl}
+
+If you didn’t request a password reset, you can ignore this email and your password will remain unchanged.
+
+© ${year} ${appName}`;
+
+  return { subject, html, text };
+}

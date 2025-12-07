@@ -6,7 +6,8 @@ import { signupController, loginController,
   deleteAccountController,
   meController,
   verifyEmailController,
-  resendVerificationEmailController
+  resendVerificationEmailController, 
+  forgetPasswordController
 } from '../controllers/auth.controller';
 import {
   googleAuthUrlController,
@@ -48,5 +49,8 @@ router.get('/verify-email', verifyEmailController);
 
 // POST /auth/verify-email/resend
 router.get('/verify-email/resend', authMiddleware, resendVerificationEmailController);
+
+// POST /auth/forget-password
+router.post('/forget-password', forgetPasswordController);
 
 export default router;

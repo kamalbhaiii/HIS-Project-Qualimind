@@ -1,6 +1,6 @@
 // src/modules/mail/mail.service.ts
 import { mailerTransport, getFromAddress } from '../../loaders/mailer';
-import { buildAccountVerifiedEmail, buildVerificationEmail, buildWelcomeEmail } from './mailTemplates';
+import { buildAccountVerifiedEmail, buildVerificationEmail, buildWelcomeEmail, buildPasswordResetEmail } from './mailTemplates';
 
 interface BasicUser {
   id: string;
@@ -46,6 +46,18 @@ export async function sendWelcomeMail(user: BasicUser) {
 
 export async function sendAccountVerifiedMail(user: BasicUser) {
   const { subject, html, text } = buildAccountVerifiedEmail(user.name);
+
+  await mailerTransport.sendMail({
+    from: getFromAddress(),
+    to: user.email,
+    subject,
+    html,
+    text,
+  });
+}
+
+export async function sendPasswordResetMail(user: { email: string; name?: string | null }, resetUrl: string) {
+  const { subject, html, text } = buildPasswordResetEmail(user.name, resetUrl);
 
   await mailerTransport.sendMail({
     from: getFromAddress(),
