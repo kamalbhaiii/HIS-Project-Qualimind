@@ -210,7 +210,7 @@ const SignUpPageTemplate = ({
           onBlur={handleBlur('name')}
           error={Boolean(errors.name)}
           helperText={errors.name}
-          icon={<Icon icon={faUser} size='sm'/>}
+          //icon={<Icon icon={faUser} size='sm'/>}
           name="name"
           id="name"
           required
@@ -227,7 +227,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('email')}
             error={Boolean(errors.email)}
             helperText={errors.email}
-            icon={<Icon icon={faMessage} size='sm' />}
+            //icon={<Icon icon={faMessage} size='sm' />}
             type="email"
             name="email"
             id="email"
@@ -247,7 +247,7 @@ const SignUpPageTemplate = ({
             onBlur={handleBlur('password')}
             error={Boolean(errors.password)}
             helperText={errors.password}
-            icon={<Icon icon={faLock} size='sm' />}
+             //icon={<Icon icon={faLock} size='sm' />}
             type="password"
             name="password"
             required
