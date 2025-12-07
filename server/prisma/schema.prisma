@@ -43,6 +43,7 @@ model ProcessingJob {
   id           String     @id @default(cuid())
   datasetId    String
   dataset      Dataset    @relation(fields: [datasetId], references: [id])
+  preprocessingTasks Json?    @db.JsonB
   status       JobStatus  @default(PENDING)
   errorMessage String?
   resultKey    String?    // e.g. Redis key storing processed output

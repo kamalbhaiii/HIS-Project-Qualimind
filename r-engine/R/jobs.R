@@ -36,9 +36,9 @@ get_processing_job_with_dataset <- function(job_id) {
 
 update_processing_job_status <- function(job_id,
                                          status,
-                                         error_message = NULL,
-                                         result_key    = NULL,
-                                         mark_started  = FALSE,
+                                         error_message  = NULL,
+                                         result_key     = NULL,
+                                         mark_started   = FALSE,
                                          mark_completed = FALSE) {
   pg_conn <- get_postgres_conn()
   if (is.null(pg_conn)) return(FALSE)

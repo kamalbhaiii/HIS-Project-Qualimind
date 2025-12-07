@@ -35,88 +35,6 @@ health_handler <- function(req, res) {
   )
 }
 
-# /process ------------------------------------------------------------
-
-process_handler <- function(req, res) {
-  body <- tryCatch({
-    jsonlite::fromJSON(req$postBody)
-  }, error = function(e) {
-    NULL
-  })
-
-  if (is.null(body)) {
-    res$status <- 400
-    return(list(error = "Invalid JSON in request body"))
-  }
-
-  if (is.null(body$data) || (!is.data.frame(body$data) && !is.list(body$data))) {
-    if (is.list(body$data) && length(body$data) > 0) {
-      body$data <- tryCatch({
-        jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
-      }, error = function(e) {
-        NULL
-      })
-    }
-  }
-
-  df <- if (is.data.frame(body$data)) {
-    body$data
-  } else if (is.null(body$data)) {
-    NULL
-  } else {
-    tryCatch({
-      jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
-    }, error = function(e) {
-      NULL
-    })
-  }
-
-  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
-    res$status <- 400
-    return(list(error = "Job must contain non-empty 'data' field as array of objects"))
-  }
-
-  job_id <- body$jobId %||% UUIDgenerate()
-
-  err_msg <- NULL
-  result <- tryCatch({
-    preprocess_categorical_data(df)
-  }, error = function(e) {
-    err_msg <<- e$message
-    NULL
-  })
-
-  if (is.null(result)) {
-    res$status <- 500
-    return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
-  }
-
-  processed_df <- result$data
-  metadata <- result$metadata
-  metadata$jobId   <- jsonlite::unbox(job_id)
-  metadata$filename <- jsonlite::unbox(body$filename %||% "inline_data")
-  metadata$source  <- jsonlite::unbox("api_request")
-
-  redis_success    <- store_in_redis(job_id, processed_df, metadata)
-  postgres_success <- store_in_postgres(job_id, processed_df, metadata)
-
-  cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
-
-  list(
-    jobId        = job_id,
-    status       = "processed",
-    rows         = nrow(processed_df),
-    originalRows = metadata$original_rows,
-    columns      = ncol(processed_df),
-    storage      = list(
-      redis    = ifelse(redis_success, "success", "failed"),
-      postgres = ifelse(postgres_success, "success", "failed")
-    ),
-    metadata     = metadata,
-    data         = cleaned_data
-  )
-}
-
 # /clean --------------------------------------------------------------
 
 clean_handler <- function(req, res, jobId) {
@@ -136,8 +54,22 @@ clean_handler <- function(req, res, jobId) {
 
   update_processing_job_status(jobId, status = "RUNNING", mark_started = TRUE)
 
+  # Parse body once for optional overrides (tasks, inline data, filename)
+  body <- tryCatch({
+    if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody) else NULL
+  }, error = function(e) {
+    NULL
+  })
+
+  # Normalize preprocessingTasks from body (if provided)
+  preprocessing_tasks <- NULL
+  if (!is.null(body) && !is.null(body$preprocessingTasks)) {
+    preprocessing_tasks <- normalize_tasks(body$preprocessingTasks)
+  }
+
   df <- NULL
 
+  # 1) Try to read from CSV on disk
   if (!is.na(file_path) && file_path != "") {
     df <- tryCatch({
       readr::read_csv(file_path, show_col_types = FALSE)
@@ -146,29 +78,22 @@ clean_handler <- function(req, res, jobId) {
     })
   }
 
-  if (is.null(df) || nrow(df) == 0) {
-    body <- tryCatch({
-      if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody) else NULL
-    }, error = function(e) {
-      NULL
-    })
-
-    if (!is.null(body) && !is.null(body$data)) {
-      df <- if (is.data.frame(body$data)) {
-        body$data
-      } else if (is.list(body$data) && length(body$data) > 0) {
-        tryCatch({
-          jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
-        }, error = function(e) {
-          NULL
-        })
-      } else {
+  # 2) Fallback: try to read data from request body
+  if ((is.null(df) || nrow(df) == 0) && !is.null(body) && !is.null(body$data)) {
+    df <- if (is.data.frame(body$data)) {
+      body$data
+    } else if (is.list(body$data) && length(body$data) > 0) {
+      tryCatch({
+        jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
+      }, error = function(e) {
         NULL
-      }
+      })
+    } else {
+      NULL
+    }
 
-      if (!is.null(body$filename)) {
-        filename <- body$filename
-      }
+    if (!is.null(body$filename)) {
+      filename <- body$filename
     }
   }
 
@@ -185,7 +110,7 @@ clean_handler <- function(req, res, jobId) {
 
   err_msg <- NULL
   result <- tryCatch({
-    preprocess_categorical_data(df)
+    preprocess_categorical_data(df, tasks = preprocessing_tasks)
   }, error = function(e) {
     err_msg <<- e$message
     NULL
@@ -204,9 +129,13 @@ clean_handler <- function(req, res, jobId) {
 
   processed_df <- result$data
   metadata <- result$metadata
-  metadata$filename  <- jsonlite::unbox(filename)
-  metadata$jobId     <- jsonlite::unbox(jobId)
-  metadata$datasetId <- jsonlite::unbox(job$datasetId[1])
+  metadata$filename    <- jsonlite::unbox(filename)
+  metadata$jobId       <- jsonlite::unbox(jobId)
+  metadata$datasetId   <- jsonlite::unbox(job$datasetId[1])
+  # ensure requested_tasks in metadata even if tasks were not provided
+  if (is.null(metadata$requested_tasks)) {
+    metadata$requested_tasks <- normalize_tasks(preprocessing_tasks) %||% DEFAULT_PREPROCESSING_TASKS
+  }
 
   result_key <- paste0("processed:", jobId)
 
@@ -248,83 +177,5 @@ clean_handler <- function(req, res, jobId) {
     ),
     metadata     = metadata,
     data         = cleaned_data
-  )
-}
-
-# /clean-inline -------------------------------------------------------
-
-clean_inline_handler <- function(req, res) {
-  body <- tryCatch({
-    jsonlite::fromJSON(req$postBody, simplifyDataFrame = TRUE)
-  }, error = function(e) {
-    NULL
-  })
-
-  if (is.null(body) || !is.data.frame(body)) {
-    res$status <- 400
-    return(list(error = "Body must be a JSON array of objects"))
-  }
-
-  err_msg <- NULL
-  result <- tryCatch({
-    preprocess_categorical_data(body)
-  }, error = function(e) {
-    err_msg <<- e$message
-    NULL
-  })
-
-  if (is.null(result)) {
-    res$status <- 500
-    return(list(error = paste("Preprocessing failed:", err_msg %||% "")))
-  }
-
-  cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(result$data, na = "string"))
-
-  list(
-    rows         = nrow(result$data),
-    originalRows = result$metadata$original_rows,
-    metadata     = result$metadata,
-    data         = cleaned_data
-  )
-}
-
-# /result/redis -------------------------------------------------------
-
-result_redis_handler <- function(jobId, res) {
-  if (is.null(jobId) || jobId == "") {
-    res$status <- 400
-    return(list(error = "jobId is required"))
-  }
-
-  redis_conn <- get_redis_conn()
-  if (is.null(redis_conn)) {
-    res$status <- 503
-    return(list(error = "Redis not available"))
-  }
-
-  data_json <- redis_conn$GET(paste0("processed:", jobId))
-  if (is.null(data_json)) {
-    res$status <- 404
-    return(list(error = "Processed data not found in Redis"))
-  }
-
-  data <- jsonlite::fromJSON(data_json)
-  list(jobId = jobId, data = data)
-}
-
-# /result/postgres ----------------------------------------------------
-
-result_postgres_handler <- function(jobId, res) {
-  if (is.null(jobId) || jobId == "") {
-    res$status <- 400
-    return(list(error = "jobId is required"))
-  }
-
-  # Row-level processed data is no longer stored in PostgreSQL.
-  # We keep only summary/metadata in Postgres; full data is in Redis.
-  res$status <- 410  # Gone
-  list(
-    error = "Row-level processed data is no longer stored in PostgreSQL. Use /result/redis to fetch processed data.",
-    jobId = jobId
   )
 }

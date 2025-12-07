@@ -30,7 +30,7 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
   }, add = TRUE)
 
   tryCatch({
-    # ONLY summary / metadata is stored now
+    # ONLY summary / metadata is stored
     dbExecute(pg_conn, "
       CREATE TABLE IF NOT EXISTS dataset_processing_summary (
         job_id VARCHAR(255) PRIMARY KEY,

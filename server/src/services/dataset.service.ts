@@ -58,6 +58,8 @@ export async function createDatasetWithJob(
     throw new Error('FILE_REQUIRED');
   }
 
+  const preprocessingTasks = body.preprocessingTasks ?? [];
+
   const dataset = await prisma.dataset.create({
     data: {
       ownerId,
@@ -69,6 +71,7 @@ export async function createDatasetWithJob(
       jobs: {
         create: {
           status: JobStatus.PENDING,
+          preprocessingTasks,
         },
       },
     },
@@ -85,10 +88,12 @@ export async function createDatasetWithJob(
   await preprocessQueue.add('preprocess-dataset', {
     processingJobId: job.id,
     datasetId: dataset.id,
+    preprocessingTasks,
   });
 
   return toDatasetResponse(dataset);
 }
+
 
 /**
  * Safely read a text file, returning null if it does not exist.
@@ -115,6 +120,7 @@ function toJobDTO(job: any | undefined): JobDTO | null {
     id: job.id,
     status: job.status,
     errorMessage: job.errorMessage ?? null,
+    preprocessingTasks: job.preprocessingTasks ?? null,
     resultKey: job.resultKey ?? null,
     createdAt: job.createdAt.toISOString(),
     startedAt: job.startedAt ? job.startedAt.toISOString() : null,

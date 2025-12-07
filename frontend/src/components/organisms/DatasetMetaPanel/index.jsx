@@ -92,6 +92,12 @@ const DatasetMetaPanel = ({ dataset }) => {
             value={safeValue(dataset.lastProcessedAt)}
           />
         </Grid>
+        <Grid item xs={12} sm={6}>
+          <KeyValueItem
+            label="Requested tasks"
+            value={safeValue(dataset.preprocessingTasks?.join(', '))}
+          />
+        </Grid>
       </Grid>
     </SurfaceCard>
   );

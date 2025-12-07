@@ -14,15 +14,37 @@ import { uploadDataset } from '../../../services/modules/dataset.api';
 import { useToast } from '../../organisms/ToastProvider';
 import { excelToCsv, jsonFileToCsv } from '../../../lib/fileConverters';
 
-const MOCK_TASKS = [
-  { key: 'handle_missing_categoricals', label: 'Handle missing categorical values' },
-  { key: 'encode_categoricals', label: 'Encode categorical variables' },
-  { key: 'reduce_cardinality', label: 'Reduce high cardinality' },
-  { key: 'clean_labels', label: 'Clean & standardize labels' },
-  { key: 'feature_engineering', label: 'Feature engineering' },
-  { key: 'handle_rare_categories', label: 'Handle rare categories' },
-  { key: 'scale_numeric', label: 'Scale numeric features' },
+export const MOCK_TASKS = [
+  {
+    key: 'handle_missing_categoricals',
+    label: 'Handle missing categorical values',
+  },
+  {
+    key: 'clean_category_labels',
+    label: 'Clean & standardize categorical labels',
+  },
+  {
+    key: 'reduce_cardinality',
+    label: 'Reduce high-cardinality & rare categories',
+  },
+  {
+    key: 'feature_engineering',
+    label: 'Feature engineering (categorical interactions)',
+  },
+  {
+    key: 'encode_categoricals',
+    label: 'Encode categorical variables',
+  },
+  {
+    key: 'numeric_imputation',
+    label: 'Impute missing numeric values',
+  },
+  {
+    key: 'numeric_scaling',
+    label: 'Scale numeric features',
+  },
 ];
+
 
 // Helper: build a new CSV File that only has selected columns
 const buildFilteredCsvFile = (file, selectedColumns) =>

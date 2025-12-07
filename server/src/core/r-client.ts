@@ -28,12 +28,13 @@ interface CallRPreprocessParams {
   datasetPath: string;
   filename: string;
   mimeType: string;
+  preprocessingTasks?: string[];
 }
 
 export async function callRPreprocess(
   params: CallRPreprocessParams
 ): Promise<RPreprocessResponse> {
-  const { processingJobId, datasetPath, filename, mimeType } = params;
+  const { processingJobId, datasetPath, filename, mimeType, preprocessingTasks } = params;
 
   const baseUrl = cfg.rService.url;
   const endpoint = cfg.rService.processEndpoint ?? '/clean?jobId=';
@@ -57,7 +58,12 @@ export async function callRPreprocess(
     jobId: processingJobId,
     filename,
     data: records,
+    preprocessingTasks: preprocessingTasks || [],
   };
+
+  if (preprocessingTasks && preprocessingTasks.length > 0) {
+    payload.preprocessingTasks = preprocessingTasks;
+  }
 
   const url = `${baseUrl.replace(/\/$/, '')}${endpoint}${encodeURIComponent(
     processingJobId

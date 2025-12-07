@@ -72,6 +72,7 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
       uploadedAt: formatDateTime(dataset.createdAt),
       totalRows:  dataset.processingSummary.processedRows ?? null,
       totalColumns: dataset.processingSummary.processedColumns ?? null,
+      preprocessingTasks: dataset.job?.preprocessingTasks || [],
       categoricalColumns: categoricalColumns.length,
       numericColumns: numericColumns.length,
       lastJobStatus: dataset.job?.status || "PENDING",
