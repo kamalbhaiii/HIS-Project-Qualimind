@@ -3,7 +3,7 @@ import { prisma } from '@loaders/prisma';
 import type { SignupRequestDTO, SignupResponseDTO } from '../types/auth.types';
 import bcrypt from 'bcryptjs';
 import type { SignupInput } from '../validations/auth.validation';
-import { AccountNotVerifiedError, EmailAlreadyExistsError, EmailAlreadyVerifiedError, GoogleAccountCannotResendError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserAlreadyVerifiedError, UserNotFoundError } from '../errors/auth.error';
+import { AccountNotVerifiedError, EmailAlreadyExistsError, EmailAlreadyVerifiedError, GoogleAccountCannotResendError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserAlreadyVerifiedError, UserNotFoundError, InvalidOrExpiredResetTokenError, GoogleAccountCannotResetError } from '../errors/auth.error';
 import { deleteDataset } from '../services/dataset.service'; 
 import { signAuthToken, verifyAuthToken } from '@utils/jwt.util';
 import { buildEmailVerificationUrl } from '@utils/url.util';
@@ -286,4 +286,43 @@ export async function requestPasswordReset(email: string): Promise<void> {
   const resetUrl = buildPasswordResetUrl(token);
 
   await sendPasswordResetMail(user, resetUrl);
+}
+
+export async function resetPasswordFromToken(
+  token: string,
+  newPassword: string
+): Promise<void> {
+  let payload: any;
+  try {
+    payload = verifyAuthToken(token); // { sub: userId, email, ... }
+  } catch (err) {
+    throw new InvalidOrExpiredResetTokenError();
+  }
+
+  const userId = payload?.sub;
+  if (!userId) {
+    throw new InvalidOrExpiredResetTokenError();
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw new UserNotFoundError();
+  }
+
+  // If you want to block Google-only accounts from using reset:
+  if (!user.passwordHash) {
+    throw new GoogleAccountCannotResetError();
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash,
+    },
+  });
 }

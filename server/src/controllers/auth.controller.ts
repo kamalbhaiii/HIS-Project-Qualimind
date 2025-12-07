@@ -6,14 +6,15 @@ import { signupLocal, loginLocal,
   deleteUserAccount,
   verifyEmailFromToken,
   resendVerificationEmail,
-  requestPasswordReset
+  requestPasswordReset,
+  resetPasswordFromToken
 } from '../services/auth.service';
 import { signupSchema, loginSchema,
   updateNameSchema,
   updateEmailSchema,
   updatePasswordSchema
 } from '../validations/auth.validation';
-import { EmailAlreadyExistsError, EmailAlreadyVerifiedError, GoogleAccountCannotResendError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserNotFoundError } from '../errors/auth.error';
+import { EmailAlreadyExistsError, EmailAlreadyVerifiedError, GoogleAccountCannotResendError, GoogleAccountNotAllowedError, InvalidOrExpiredVerificationTokenError, InvalidPasswordError, UserNotFoundError, InvalidOrExpiredResetTokenError, GoogleAccountCannotResetError } from '../errors/auth.error';
 import { signAuthToken, verifyAuthToken } from '../utils/jwt.util';
 import { PrismaClient, Prisma } from '../../prisma/.prisma/client';
 import {prisma} from '@loaders/prisma'
@@ -355,6 +356,54 @@ export async function forgetPasswordController(
       message:
         'If an account exists for this email, a password reset link has been sent.',
     });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function resetPasswordController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { token, newPassword } = req.body as {
+      token?: string;
+      newPassword?: string;
+    };
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        message: 'Token and newPassword are required.',
+      });
+    }
+
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({
+        message: 'New password must be at least 8 characters long.',
+      });
+    }
+
+    try {
+      await resetPasswordFromToken(token, newPassword);
+
+      // No extra data needed on success
+      return res.status(204).send();
+    } catch (err) {
+      if (err instanceof InvalidOrExpiredResetTokenError) {
+        return res.status(400).json({ message: 'Invalid or expired reset token.' });
+      }
+      if (err instanceof UserNotFoundError) {
+        return res.status(404).json({ message: 'User not found.' });
+      }
+      if (err instanceof GoogleAccountCannotResetError) {
+        return res.status(403).json({
+          message: 'Password reset is not available for Google sign-in accounts.',
+        });
+      }
+
+      throw err;
+    }
   } catch (err) {
     return next(err);
   }

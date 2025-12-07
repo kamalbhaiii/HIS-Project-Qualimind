@@ -58,3 +58,16 @@ export class GoogleAccountCannotResendError extends Error {
     this.name = 'GoogleAccountCannotResendError';
   }
 }
+
+export class InvalidOrExpiredResetTokenError extends Error {
+  constructor() {
+    super('INVALID_OR_EXPIRED_RESET_TOKEN');
+    this.name = 'InvalidOrExpiredResetTokenError';
+  }
+}
+export class GoogleAccountCannotResetError extends Error {
+  constructor() {
+    super('GOOGLE_ACCOUNT_CANNOT_RESET');
+    this.name = 'GoogleAccountCannotResetError';
+  }
+}
