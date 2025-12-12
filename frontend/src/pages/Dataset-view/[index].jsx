@@ -6,6 +6,7 @@ import DatasetViewPageTemplate from "../../components/templates/DatasetViewPageT
 import ProtectedRoute from "../../routes/ProtectedRoute";
 import { getDatasetByID } from "../../services/modules/dataset.api";
 import { useToast } from "../../components/organisms/ToastProvider";
+import DashboardLayout from "../../layouts/DashboardLayout";
 
 export default function DatasetView() {
   const {showToast} = useToast();
@@ -38,11 +39,13 @@ export default function DatasetView() {
 
   return (
     <ProtectedRoute>
+      <DashboardLayout activeKey="datasets">
       <DatasetViewPageTemplate
         dataset={dataset}
         loading={loading}
         error={error}
       />
+      </DashboardLayout>
     </ProtectedRoute>
   );
 }

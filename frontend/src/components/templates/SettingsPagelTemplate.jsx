@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import DashboardLayout from '../templates/DashboardLayout';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
 import FlexBox from '../atoms/FlexBox';
 

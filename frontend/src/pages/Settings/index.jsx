@@ -1,4 +1,4 @@
-import DashboardLayout from "../../components/templates/DashboardLayout";
+import DashboardLayout from "../../layouts/DashboardLayout";
 import SettingsPageTemplate from "../../components/templates/SettingsPagelTemplate";
 import ProtectedRoute from "../../routes/ProtectedRoute";
 

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 
-import DashboardLayout from '../../components/templates/DashboardLayout';
 import FlexBox from '../../components/atoms/FlexBox';
 import Typography from '../../components/atoms/CustomTypography';
 import DragAndDropUploadArea from '../../components/organisms/DragAndDropUploadArea';
@@ -40,7 +39,7 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
   };
 
   return (
-    <DashboardLayout activeKey="datasets" onNavigate={onNavigate}>
+    <>
       <Typography variant="h5" sx={{ mb: 1.5, fontWeight: 700 }}>
         Upload a new dataset
       </Typography>
@@ -62,7 +61,7 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
         onClose={handleWizardClose}
         onUploaded={handleUploaded}
       />
-    </DashboardLayout>
+    </>
   );
 };
 

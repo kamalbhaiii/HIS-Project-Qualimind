@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import DashboardLayout, { useDashboard } from './DashboardLayout';
+import { useDashboard } from '../../layouts/DashboardLayout';
 import FlexBox from '../atoms/FlexBox';
 import DashboardStatsOverview from '../organisms/DashboardStatsOverview';
 import DatasetListTable from '../organisms/DatasetListTable';

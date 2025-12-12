@@ -1,6 +1,5 @@
 import React from 'react';
 
-import DashboardLayout from '../templates/DashboardLayout';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
 import FlexBox from '../atoms/FlexBox';
 
@@ -75,7 +74,7 @@ const JobDetailPageTemplate = () => {
   const showErrorAlert = job.status === 'FAILED' && job.errorMessage;
 
   return (
-    <DashboardLayout activeKey="jobs">
+    <>
       <DashboardSectionHeader
         title="Job details"
         subtitle="Track job lifecycle, inspect the processed result, and export data"
@@ -130,7 +129,7 @@ const JobDetailPageTemplate = () => {
         />
         <JobExportPanel onExport={handleExport} />
       </FlexBox>
-    </DashboardLayout>
+    </>
   );
 };
 

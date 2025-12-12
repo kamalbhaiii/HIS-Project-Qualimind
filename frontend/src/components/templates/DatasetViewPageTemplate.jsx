@@ -1,8 +1,6 @@
 // src/components/templates/DatasetViewPageTemplate.jsx
 import React, { useMemo, useState } from "react";
 import PropTypes from "prop-types";
-
-import DashboardLayout from "../../components/templates/DashboardLayout";
 import DashboardSectionHeader from "../../components/molecules/DashboardSectionHeader";
 import FlexBox from "../../components/atoms/FlexBox";
 import Typography from "../../components/atoms/CustomTypography";
@@ -101,7 +99,7 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
   };
 
   return (
-    <DashboardLayout activeKey="datasets" onNavigate={onNavigate}>
+    <>
       <DashboardSectionHeader
         title="Dataset view"
         subtitle="Inspect your original dataset and the preprocessed output."
@@ -163,7 +161,7 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
           </Typography>
         </>
       )}
-    </DashboardLayout>
+    </>
   );
 };
 

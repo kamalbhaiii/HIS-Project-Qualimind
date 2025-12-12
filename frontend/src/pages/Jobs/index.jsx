@@ -1,4 +1,4 @@
-import DashboardLayout from "../../components/templates/DashboardLayout";
+import DashboardLayout from "../../layouts/DashboardLayout";
 import JobsPageTemplate from "../../components/templates/JobsPageTemplate";
 import ProtectedRoute from "../../routes/ProtectedRoute";
 

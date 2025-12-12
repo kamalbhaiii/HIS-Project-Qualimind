@@ -1,6 +1,5 @@
 import React from 'react';
 
-import DashboardLayout from '../templates/DashboardLayout';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
 import FlexBox from '../atoms/FlexBox';
 
@@ -82,7 +81,7 @@ const DatasetDetailPage = () => {
   ];
 
   return (
-    <DashboardLayout activeKey="datasets">
+    <>
       <DashboardSectionHeader
         title="Dataset details"
         subtitle="Inspect metadata, associated jobs, and a sample preview"
@@ -101,7 +100,7 @@ const DatasetDetailPage = () => {
       </FlexBox>
 
       <DatasetJobsTable jobs={datasetJobs} />
-    </DashboardLayout>
+    </>
   );
 };
 

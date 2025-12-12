@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 
-import DashboardLayout, { useDashboard } from '../../components/templates/DashboardLayout';
+import { useDashboard } from '../../layouts/DashboardLayout';
 import DashboardSectionHeader from '../../components/molecules/DashboardSectionHeader';
 import FlexBox from '../../components/atoms/FlexBox';
 

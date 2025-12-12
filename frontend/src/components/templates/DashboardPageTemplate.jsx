@@ -3,18 +3,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 
-import DashboardLayout, { useDashboard } from '../../components/templates/DashboardLayout';
+import { useDashboard } from '../../layouts/DashboardLayout';
 import DashboardStatsOverview from '../../components/organisms/DashboardStatsOverview';
 import RecentJobsTable from '../../components/organisms/RecentJobsTable';
 import RecentDatasetsTable from '../../components/organisms/RecentDatasetsTable';
 import QuickActionsPanel from '../../components/organisms/QuickActionsPanel';
 import FlexBox from '../../components/atoms/FlexBox';
 import Typography from '../../components/atoms/CustomTypography';
-import ProtectedRoute from '../../routes/ProtectedRoute';
-
-import { getJobs } from '../../services/modules/job.api';
-import { getDatasets } from '../../services/modules/dataset.api';
-import { useToast } from '../../components/organisms/ToastProvider';
 
 // --- helpers ---------------------------------------------------------
 

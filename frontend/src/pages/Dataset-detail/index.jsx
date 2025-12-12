@@ -3,6 +3,8 @@ import ProtectedRoute from "../../routes/ProtectedRoute";
 
 export default function DatasetDetail() {
   return <ProtectedRoute>
+    <DashboardLayout activeKey="datasets">
     <DatasetDetailPage />
+    </DashboardLayout>
   </ProtectedRoute>;
 }
