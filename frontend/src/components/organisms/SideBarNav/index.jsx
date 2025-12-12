@@ -1,51 +1,68 @@
-import React from 'react';
-import PropTypes from 'prop-types';
-import { NavLink } from 'react-router-dom';
+import React from "react";
+import PropTypes from "prop-types";
+import { NavLink, useNavigate } from "react-router-dom";
 
-import Drawer from '@mui/material/Drawer';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Divider from '@mui/material/Divider';
-import Box from '@mui/material/Box';
-import Tooltip from '@mui/material/Tooltip';
-import IconButton from '@mui/material/IconButton';
-import Typography from '@mui/material/Typography';
+import Drawer from "@mui/material/Drawer";
+import List from "@mui/material/List";
+import ListItem from "@mui/material/ListItem";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
+import Box from "@mui/material/Box";
+import Tooltip from "@mui/material/Tooltip";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
 
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import Avatar from "../../atoms/Avatar";
+import ThemeModeSwitch from "../../atoms/ThemeModeSwitch";
 
-import Avatar from '../../atoms/Avatar';
-import { useDashboard } from '../../../layouts/DashboardLayout';
+import { useDashboard } from "../../../layouts/DashboardLayout";
+import { useAppTheme } from "../../../theme/AppThemeProvider";
+import { clearAuth } from "../../../lib/authStorage";
+import { useToast } from "../ToastProvider";
+
+import {
+  AnimatedChevronLeft,
+  AnimatedChevronRight,
+  AnimatedLogout,
+} from "../../atoms/AnimatedIcons";
 
 export const SIDEBAR_WIDTH = 240;
 export const SIDEBAR_COLLAPSED_WIDTH = 72;
 
-const SidebarNav = ({
-  items,
-  collapsed,
-  onToggleCollapse,
-  headerContentExpanded,
-}) => {
+const SidebarNav = ({ items, collapsed, onToggleCollapse, headerContentExpanded }) => {
   const drawerWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
-  const {me} = useDashboard();
 
-  // Static for now; you will replace with API data later
-  const userName = me?.name || 'John Doe';
-  const userAvatarSrc = null; // set later when you have a real avatar URL
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+
+  const { me } = useDashboard();
+  const { darkMode, setDarkMode } = useAppTheme();
+
+  const userName = me?.name || "John Doe";
+  const userAvatarSrc = null;
+
+  const handleSignOut = () => {
+    try {
+      clearAuth();
+      showToast?.("You have been logged out.", "success");
+      navigate("/sign-in", { replace: true });
+    } catch {
+      showToast?.("Error during logout. Please try again.", "error");
+    }
+  };
 
   const content = (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header: collapsed shows 'Q', expanded shows real logo */}
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
       <Box
         sx={{
           mt: 1,
           mx: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'space-between',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: collapsed ? "center" : "space-between",
           minHeight: 52,
         }}
       >
@@ -55,11 +72,11 @@ const SidebarNav = ({
               width: 40,
               height: 40,
               borderRadius: 2,
-              display: 'grid',
-              placeItems: 'center',
+              display: "grid",
+              placeItems: "center",
               border: (t) => `1px solid ${t.palette.divider}`,
-              bgcolor: 'background.paper',
-              userSelect: 'none',
+              bgcolor: "background.paper",
+              userSelect: "none",
             }}
           >
             <Typography sx={{ fontWeight: 800, lineHeight: 1 }}>Q</Typography>
@@ -69,12 +86,12 @@ const SidebarNav = ({
         )}
 
         <IconButton
-          aria-label={collapsed ? 'expand sidebar' : 'collapse sidebar'}
+          aria-label={collapsed ? "expand sidebar" : "collapse sidebar"}
           onClick={onToggleCollapse}
           size="small"
           sx={{ ml: collapsed ? 0 : 1 }}
         >
-          {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+          {collapsed ? <AnimatedChevronRight size={18} /> : <AnimatedChevronLeft size={18} />}
         </IconButton>
       </Box>
 
@@ -90,8 +107,8 @@ const SidebarNav = ({
               sx={{
                 borderRadius: 2,
                 py: 1.1,
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                '&.active': (theme) => ({
+                justifyContent: collapsed ? "center" : "flex-start",
+                "&.active": (theme) => ({
                   bgcolor: theme.palette.action.selected,
                 }),
               }}
@@ -101,7 +118,7 @@ const SidebarNav = ({
                   sx={{
                     minWidth: collapsed ? 0 : 40,
                     mr: collapsed ? 0 : 1,
-                    justifyContent: 'center',
+                    justifyContent: "center",
                   }}
                 >
                   {item.icon}
@@ -112,12 +129,13 @@ const SidebarNav = ({
                 primary={item.label}
                 sx={{
                   opacity: collapsed ? 0 : 1,
-                  width: collapsed ? 0 : 'auto',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  transition: (t) => t.transitions.create(['opacity', 'width'], {
-                    duration: t.transitions.duration.shorter,
-                  }),
+                  width: collapsed ? 0 : "auto",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  transition: (t) =>
+                    t.transitions.create(["opacity", "width"], {
+                      duration: t.transitions.duration.shorter,
+                    }),
                 }}
               />
             </ListItemButton>
@@ -141,43 +159,85 @@ const SidebarNav = ({
 
       <Divider />
 
-      {/* Bottom user section */}
-      <Box
-        sx={{
-          p: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          gap: 1,
-        }}
-      >
+      {/* Bottom controls */}
+      <Box sx={{ p: 1, display: "flex", flexDirection: "column", gap: 0.75 }}>
+        {/* Dark mode switch (keep as-is) */}
         {collapsed ? (
-          <Tooltip title={userName} placement="right" arrow>
+          <Tooltip
+            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+            placement="right"
+            arrow
+          >
             <Box>
-              <Avatar name={userName} src={userAvatarSrc} size={40} />
+              <ThemeModeSwitch checked={darkMode} onChange={setDarkMode} collapsed />
             </Box>
           </Tooltip>
         ) : (
-          <>
-            <Avatar name={userName} src={userAvatarSrc} size={40} />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography
-                variant="body2"
-                sx={{ fontWeight: 700, lineHeight: 1.2 }}
-                noWrap
-              >
-                {userName}
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{ color: 'text.secondary', lineHeight: 1.2 }}
-                noWrap
-              >
-                Account
-              </Typography>
-            </Box>
-          </>
+          <ThemeModeSwitch checked={darkMode} onChange={setDarkMode} />
         )}
+
+        {/* Sign out */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: collapsed ? "center" : "flex-start",
+            px: collapsed ? 0 : 1,
+          }}
+        >
+          {collapsed ? (
+            <Tooltip title="Sign out" placement="right" arrow>
+              <IconButton aria-label="sign out" onClick={handleSignOut} size="small">
+                <AnimatedLogout size={18} />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <ListItemButton
+              onClick={handleSignOut}
+              sx={{
+                borderRadius: 2,
+                px: 1,
+                py: 0.9,
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 36 }}>
+                <AnimatedLogout size={18} />
+              </ListItemIcon>
+              <ListItemText
+                primary="Sign out"
+                primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}
+              />
+            </ListItemButton>
+          )}
+        </Box>
+
+        {/* User */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: collapsed ? "center" : "flex-start",
+            gap: 1,
+            px: collapsed ? 0 : 1,
+            py: 0.5,
+          }}
+        >
+          {collapsed ? (
+            <Tooltip title={userName} placement="right" arrow>
+              <Box>
+                <Avatar name={userName} src={userAvatarSrc} size={40} />
+              </Box>
+            </Tooltip>
+          ) : (
+            <>
+              <Avatar name={userName} src={userAvatarSrc} size={40} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }} noWrap>
+                  {userName}
+                </Typography>
+              </Box>
+            </>
+          )}
+        </Box>
       </Box>
     </Box>
   );
@@ -187,16 +247,16 @@ const SidebarNav = ({
       variant="permanent"
       open
       sx={{
-        display: 'block',
+        display: "block",
         width: drawerWidth,
         flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          position: 'relative',
+        "& .MuiDrawer-paper": {
+          position: "relative",
           width: drawerWidth,
-          overflowX: 'hidden',
-          boxSizing: 'border-box',
+          overflowX: "hidden",
+          boxSizing: "border-box",
           transition: (t) =>
-            t.transitions.create('width', {
+            t.transitions.create("width", {
               easing: t.transitions.easing.sharp,
               duration: t.transitions.duration.shorter,
             }),

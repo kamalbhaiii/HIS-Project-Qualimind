@@ -15,8 +15,8 @@ const PreferencesPanel = ({
   onDefaultExportFormatChange,
 }) => {
   return (
-    <SurfaceCard sx={{ p: 3, borderRadius: 2 }}>
-      <Typography variant="h6" sx={{ mb: 1.5 }}>
+    <SurfaceCard sx={{ p: { xs: 2, sm: 3 }, borderRadius: 2 }}>
+      <Typography variant="h6" sx={{ mb: 1.25 }}>
         Preferences
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
@@ -55,11 +55,11 @@ const PreferencesPanel = ({
 
 PreferencesPanel.propTypes = {
   darkMode: PropTypes.bool.isRequired,
-  onDarkModeChange: PropTypes.func.isRequired, // (bool) => void
+  onDarkModeChange: PropTypes.func.isRequired,
   compactMode: PropTypes.bool.isRequired,
-  onCompactModeChange: PropTypes.func.isRequired, // (bool) => void
+  onCompactModeChange: PropTypes.func.isRequired,
   defaultExportFormat: PropTypes.string.isRequired,
-  onDefaultExportFormatChange: PropTypes.func.isRequired, // (string) => void
+  onDefaultExportFormatChange: PropTypes.func.isRequired,
 };
 
 export default PreferencesPanel;

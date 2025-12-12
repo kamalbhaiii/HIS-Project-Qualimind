@@ -1,4 +1,3 @@
-// src/components/organisms/AccountInfoPanel.jsx
 import React from 'react';
 import PropTypes from 'prop-types';
 
@@ -9,8 +8,8 @@ import Button from '../../atoms/CustomButton';
 
 const AccountInfoPanel = ({ user, onLogout, onManageAccount }) => {
   return (
-    <SurfaceCard sx={{ p: 3, borderRadius: 2, mb: 3 }}>
-      <Typography variant="h6" sx={{ mb: 1.5 }}>
+    <SurfaceCard sx={{ p: { xs: 2, sm: 3 }, borderRadius: 2 }}>
+      <Typography variant="h6" sx={{ mb: 1.25 }}>
         Account
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
@@ -21,52 +20,41 @@ const AccountInfoPanel = ({ user, onLogout, onManageAccount }) => {
         <Typography
           variant="caption"
           color="textSecondary"
-          sx={{
-            textTransform: 'uppercase',
-            letterSpacing: 0.4,
-          }}
+          sx={{ textTransform: 'uppercase', letterSpacing: 0.4 }}
         >
           Name
         </Typography>
-        <Typography variant="body2">{user?.name}</Typography>
+        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+          {user?.name}
+        </Typography>
       </FlexBox>
 
       <FlexBox sx={{ mb: 2 }}>
         <Typography
           variant="caption"
           color="textSecondary"
-          sx={{
-            textTransform: 'uppercase',
-            letterSpacing: 0.4,
-          }}
+          sx={{ textTransform: 'uppercase', letterSpacing: 0.4 }}
         >
           Email
         </Typography>
-        <Typography variant="body2">{user?.email}</Typography>
+        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+          {user?.email}
+        </Typography>
       </FlexBox>
 
       <FlexBox
         sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 2,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: 'auto auto' },
+          justifyContent: { xs: 'stretch', sm: 'space-between' },
+          gap: 1.25,
         }}
       >
-        <Button
-          variant="outlined"
-          color="primary"
-          size="small"
-          onClick={onManageAccount}
-        >
+        <Button variant="outlined" color="primary" size="small" onClick={onManageAccount} fullWidth>
           Manage account
         </Button>
-        <Button
-          variant="text"
-          color="error"
-          size="small"
-          onClick={onLogout}
-        >
+
+        <Button variant="text" color="error" size="small" onClick={onLogout} fullWidth>
           Sign out
         </Button>
       </FlexBox>
@@ -79,8 +67,8 @@ AccountInfoPanel.propTypes = {
     name: PropTypes.string,
     email: PropTypes.string,
   }),
-  onLogout: PropTypes.func, // () => void
-  onManageAccount: PropTypes.func, // () => void
+  onLogout: PropTypes.func,
+  onManageAccount: PropTypes.func,
 };
 
 export default AccountInfoPanel;
