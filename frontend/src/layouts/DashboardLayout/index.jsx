@@ -28,6 +28,10 @@ import { getDatasets } from "../../services/modules/dataset.api";
 
 import { getSocket } from "../../services/realtime/socket";
 
+// ✅ Breadcrumbs
+import BreadcrumbProvider, { useBreadcrumbs } from "../BreadcrumbProvider";
+import AppBreadcrumbs from "../../components/molecules/AppBreadcrumbs";
+
 // ✅ Animated icons
 import {
   AnimatedDashboard,
@@ -51,6 +55,22 @@ const readLSBool = (key, fallback = false) => {
   } catch {
     return fallback;
   }
+};
+
+// Inner content so hooks run inside BreadcrumbProvider
+const DashboardContent = ({ children }) => {
+  const { items } = useBreadcrumbs();
+
+  return (
+    <>
+      <AppBreadcrumbs items={items} />
+      <SurfaceCard sx={{ p: 3 }}>{children}</SurfaceCard>
+    </>
+  );
+};
+
+DashboardContent.propTypes = {
+  children: PropTypes.node.isRequired,
 };
 
 const DashboardLayout = ({ children }) => {
@@ -157,21 +177,13 @@ const DashboardLayout = ({ children }) => {
     const socket = getSocket();
 
     const onJobUpdate = (evt) => {
-      if (evt.status === "RUNNING") {
-        showToastRef.current?.("Preprocessing started…", "info");
-      }
-      if (evt.status === "SUCCESS") {
-        showToastRef.current?.("Dataset preprocessing completed.", "success");
-      }
-      if (evt.status === "FAILED") {
-        showToastRef.current?.(evt.message || "Dataset preprocessing failed.", "error");
-      }
+      if (evt.status === "RUNNING") showToastRef.current?.("Preprocessing started…", "info");
+      if (evt.status === "SUCCESS") showToastRef.current?.("Dataset preprocessing completed.", "success");
+      if (evt.status === "FAILED") showToastRef.current?.(evt.message || "Dataset preprocessing failed.", "error");
 
       setJobs((prev) => {
         const idx = prev.findIndex((j) => j.id === evt.jobId);
-        if (idx === -1) {
-          return [{ id: evt.jobId, datasetId: evt.datasetId, status: evt.status }, ...prev];
-        }
+        if (idx === -1) return [{ id: evt.jobId, datasetId: evt.datasetId, status: evt.status }, ...prev];
         const next = [...prev];
         next[idx] = { ...next[idx], status: evt.status };
         return next;
@@ -182,9 +194,7 @@ const DashboardLayout = ({ children }) => {
         if (idx === -1) return prev;
 
         const current = prev[idx];
-        const nextJob = current.job
-          ? { ...current.job, status: evt.status }
-          : { id: evt.jobId, status: evt.status };
+        const nextJob = current.job ? { ...current.job, status: evt.status } : { id: evt.jobId, status: evt.status };
 
         const next = [...prev];
         next[idx] = { ...current, job: nextJob };
@@ -193,10 +203,7 @@ const DashboardLayout = ({ children }) => {
     };
 
     socket.on("job:update", onJobUpdate);
-
-    return () => {
-      socket.off("job:update", onJobUpdate);
-    };
+    return () => socket.off("job:update", onJobUpdate);
   }, [me?.id]);
 
   /* ---------------- UI ---------------- */
@@ -214,27 +221,18 @@ const DashboardLayout = ({ children }) => {
   return (
     <DashboardContext.Provider
       value={{
-        me,
-        setMe,
-        jobs,
-        setJobs,
-        datasets,
-        setDatasets,
-        loading,
-        setLoading,
-        error,
-        setError,
-        sidebarCollapsed,
-        setSidebarCollapsed,
+        me, setMe,
+        jobs, setJobs,
+        datasets, setDatasets,
+        loading, setLoading,
+        error, setError,
+        sidebarCollapsed, setSidebarCollapsed,
       }}
     >
       <CssBaseline />
       <GlobalStyles
         styles={{
-          "html, body, #root": {
-            height: "100%",
-            overflow: "hidden",
-          },
+          "html, body, #root": { height: "100%", overflow: "hidden" },
         }}
       />
 
@@ -265,7 +263,9 @@ const DashboardLayout = ({ children }) => {
               />
             )}
 
-            <SurfaceCard sx={{ p: 3 }}>{children}</SurfaceCard>
+            <BreadcrumbProvider>
+              <DashboardContent>{children}</DashboardContent>
+            </BreadcrumbProvider>
           </Box>
         </Box>
       </Box>
