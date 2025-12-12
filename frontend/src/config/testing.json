@@ -1,5 +1,6 @@
 {
   "apiBaseUrl": "http://localhost:10000/api",
+  "serverUrl": "http://localhost:10000/",
   "featureFlags": {
     "enableUpload": false
   },

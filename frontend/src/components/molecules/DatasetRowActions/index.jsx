@@ -15,14 +15,11 @@ const DatasetRowActions = ({ status, onView, onDelete }) => {
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      {/* Show View ONLY if SUCCESS */}
-      {isSuccess && (
         <Tooltip title="View Dataset">
           <IconButton size="small" onClick={onView}>
           <Icon icon={faEye} color={'blue'} size="sm" />
         </IconButton>
         </Tooltip>
-      )}
 
       <Tooltip title="Delete Dataset">
         <IconButton size="small" onClick={onDelete} color="error">

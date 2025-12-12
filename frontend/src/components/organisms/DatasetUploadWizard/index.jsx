@@ -15,77 +15,17 @@ import { useToast } from '../../organisms/ToastProvider';
 import { excelToCsv, jsonFileToCsv } from '../../../lib/fileConverters';
 
 export const MOCK_TASKS = [
-  {
-    key: 'handle_missing_categoricals',
-    label: 'Handle missing categorical values',
-  },
-  {
-    key: 'clean_category_labels',
-    label: 'Clean & standardize categorical labels',
-  },
-  {
-    key: 'reduce_cardinality',
-    label: 'Reduce high-cardinality & rare categories',
-  },
-  {
-    key: 'feature_engineering',
-    label: 'Feature engineering (categorical interactions)',
-  },
-  {
-    key: 'encode_categoricals',
-    label: 'Encode categorical variables',
-  },
-  {
-    key: 'numeric_imputation',
-    label: 'Impute missing numeric values',
-  },
-  {
-    key: 'numeric_scaling',
-    label: 'Scale numeric features',
-  },
+  { key: 'handle_missing_categoricals', label: 'Handle missing categorical values' },
+  { key: 'clean_category_labels', label: 'Clean & standardize categorical labels' },
+  { key: 'reduce_cardinality', label: 'Reduce high-cardinality & rare categories' },
+  { key: 'feature_engineering', label: 'Feature engineering (categorical interactions)' },
+  { key: 'encode_categoricals', label: 'Encode categorical variables' },
+  { key: 'numeric_imputation', label: 'Impute missing numeric values' },
+  { key: 'numeric_scaling', label: 'Scale numeric features' },
 ];
 
-
-// Helper: build a new CSV File that only has selected columns
-const buildFilteredCsvFile = (file, selectedColumns) =>
-  new Promise((resolve, reject) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        const rows = results.data || [];
-
-        const filteredRows = rows.map((row) => {
-          const newRow = {};
-          selectedColumns.forEach((col) => {
-            newRow[col] = row[col];
-          });
-          return newRow;
-        });
-
-        const csvString = Papa.unparse({
-          fields: selectedColumns,
-          data: filteredRows,
-        });
-
-        const newFile = new File(
-          [csvString],
-          file.name || 'dataset.csv',
-          {
-            type: file.type || 'text/csv',
-          }
-        );
-
-        resolve(newFile);
-      },
-      error: (error) => {
-        reject(error);
-      },
-    });
-  });
-
 const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
-  const [step, setStep] = useState(0); // 0 = name + columns, 1 = tasks
+  const [step, setStep] = useState(0);
   const [columns, setColumns] = useState([]);
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [selectedTasks, setSelectedTasks] = useState([]);
@@ -94,55 +34,53 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
 
   const { showToast } = useToast();
 
-  // When file changes, set default dataset name and detect columns
-useEffect(() => {
-  if (!file) return;
+  useEffect(() => {
+    if (!file) return;
 
-  const rawName = file.name || 'dataset';
-  const lower = rawName.toLowerCase();
+    const rawName = file.name || 'dataset';
+    const lower = rawName.toLowerCase();
 
-  // default dataset name (you already have this logic)
-  const dotIndex = rawName.lastIndexOf('.');
-  const baseName = dotIndex > 0 ? rawName.slice(0, dotIndex) : rawName;
-  setDatasetName(baseName);
+    const dotIndex = rawName.lastIndexOf('.');
+    const baseName = dotIndex > 0 ? rawName.slice(0, dotIndex) : rawName;
+    setDatasetName(baseName);
 
-  const setFromCsvString = (csvString) => {
-    const parsed = Papa.parse(csvString, {
-      header: true,
-      preview: 1,
-      skipEmptyLines: true,
-    });
-    const fields = parsed.meta?.fields || [];
-    setColumns(fields);
-    setSelectedColumns(fields); // default: all selected
-  };
+    const setFromCsvString = (csvString) => {
+      const parsed = Papa.parse(csvString, {
+        header: true,
+        preview: 1,
+        skipEmptyLines: true,
+      });
+      const fields = parsed.meta?.fields || [];
+      setColumns(fields);
+      setSelectedColumns(fields);
+    };
 
-  const detectColumns = async () => {
-    try {
-      if (lower.endsWith('.csv')) {
-        const text = await file.text();
-        setFromCsvString(text);
-      } else if (lower.endsWith('.json')) {
-        const csvString = await jsonFileToCsv(file);
-        setFromCsvString(csvString);
-      } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-        const csvString = await excelToCsv(file);
-        setFromCsvString(csvString);
-      } else {
+    const detectColumns = async () => {
+      try {
+        if (lower.endsWith('.csv')) {
+          const text = await file.text();
+          setFromCsvString(text);
+        } else if (lower.endsWith('.json')) {
+          const csvString = await jsonFileToCsv(file);
+          setFromCsvString(csvString);
+        } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+          const csvString = await excelToCsv(file);
+          setFromCsvString(csvString);
+        } else {
+          setColumns([]);
+          setSelectedColumns([]);
+          showToast('Unsupported file format.', 'warning');
+        }
+      } catch (error) {
+        console.error('Column detection failed:', error);
         setColumns([]);
         setSelectedColumns([]);
-        showToast('Unsupported file format.', 'warning');
+        showToast('Failed to detect columns from file.', 'error');
       }
-    } catch (error) {
-      console.error('Column detection failed:', error);
-      setColumns([]);
-      setSelectedColumns([]);
-      showToast('Failed to detect columns from file.', 'error');
-    }
-  };
+    };
 
-  detectColumns();
-}, [file]);
+    detectColumns();
+  }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggleColumn = (col) => {
     setSelectedColumns((prev) =>
@@ -152,9 +90,7 @@ useEffect(() => {
 
   const handleToggleTask = (taskKey) => {
     setSelectedTasks((prev) =>
-      prev.includes(taskKey)
-        ? prev.filter((k) => k !== taskKey)
-        : [...prev, taskKey]
+      prev.includes(taskKey) ? prev.filter((k) => k !== taskKey) : [...prev, taskKey]
     );
   };
 
@@ -174,90 +110,70 @@ useEffect(() => {
   };
 
   const handleBack = () => {
-    if (step === 1) {
-      setStep(0);
-    }
+    if (step === 1) setStep(0);
   };
 
-const handleUpload = async () => {
-  if (!file) return;
+  const handleUpload = async () => {
+    if (!file) return;
 
-  setUploading(true);
+    setUploading(true);
 
-  try {
-    const finalName = (datasetName.trim() || "dataset") + ".csv";
+    try {
+      const finalName = (datasetName.trim() || 'dataset') + '.csv';
+      const lowerName = file.name.toLowerCase();
 
-    const lowerName = file.name.toLowerCase();
+      let csvString;
 
-    let csvString;
+      if (lowerName.endsWith('.csv')) {
+        csvString = await file.text();
+      } else if (lowerName.endsWith('.json')) {
+        csvString = await jsonFileToCsv(file);
+      } else if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
+        csvString = await excelToCsv(file);
+      } else {
+        showToast('Unsupported file format.', 'error');
+        return;
+      }
 
-    if (lowerName.endsWith(".csv")) {
-      // Already CSV → skip to next step
-      csvString = await file.text();
-    }
-
-    else if (lowerName.endsWith(".json")) {
-      // Convert JSON → CSV
-      csvString = await jsonFileToCsv(file);
-    }
-
-    else if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
-      // Convert Excel → CSV
-      csvString = await excelToCsv(file);
-    }
-
-    else {
-      showToast("Unsupported file format.", "error");
-      return;
-    }
-
-    // Parse CSV to apply column filtering
-    const parsed = Papa.parse(csvString, {
-      header: true,
-      skipEmptyLines: true,
-    });
-
-    const rows = parsed.data || [];
-
-    const filteredRows = rows.map((row) => {
-      const newRow = {};
-      selectedColumns.forEach((col) => {
-        newRow[col] = row[col];
+      const parsed = Papa.parse(csvString, {
+        header: true,
+        skipEmptyLines: true,
       });
-      return newRow;
-    });
 
-    const finalCsvString = Papa.unparse({
-      fields: selectedColumns,
-      data: filteredRows,
-    });
+      const rows = parsed.data || [];
+      const filteredRows = rows.map((row) => {
+        const newRow = {};
+        selectedColumns.forEach((col) => {
+          newRow[col] = row[col];
+        });
+        return newRow;
+      });
 
-    // Build final renamed CSV file
-    const csvFile = new File(
-      [finalCsvString],
-      finalName,
-      { type: "text/csv" }
-    );
+      const finalCsvString = Papa.unparse({
+        fields: selectedColumns,
+        data: filteredRows,
+      });
 
-    // Upload to backend
-    const res = await uploadDataset({
-      file: csvFile,
-      name: finalName,
-      preprocessingTasks: selectedTasks
-    });
+      const csvFile = new File([finalCsvString], finalName, { type: 'text/csv' });
 
-    showToast("Dataset uploaded successfully!", "success");
+      const res = await uploadDataset({
+        file: csvFile,
+        name: finalName,
+        preprocessingTasks: selectedTasks,
+      });
 
-    if (onUploaded) onUploaded(res);
+      showToast('Dataset uploaded successfully!', 'success');
 
-    onClose();
-  } catch (err) {
-    console.error(err);
-    showToast("File conversion failed.", "error");
-  } finally {
-    setUploading(false);
-  }
-};
+      if (onUploaded) onUploaded(res);
+
+      onClose();
+    } catch (err) {
+      console.error(err);
+      showToast('Upload failed.', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const title =
     step === 0 ? 'Name your dataset & select columns' : 'Choose preprocessing tasks';
@@ -266,7 +182,6 @@ const handleUpload = async () => {
     <AppModal open={open} title={title} onClose={onClose} maxWidth="md">
       {step === 0 && (
         <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
-          {/* Dataset Name Input */}
           <InputFieldWithLabel
             label="Dataset name"
             placeholder="Enter a dataset name"
@@ -278,8 +193,8 @@ const handleUpload = async () => {
           />
 
           <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-            We detected the following columns in your dataset. Uncheck any
-            columns you want to exclude before preprocessing.
+            We detected the following columns in your dataset. Uncheck any columns you want to
+            exclude before preprocessing.
           </Typography>
 
           <ColumnSelectionList
@@ -303,9 +218,7 @@ const handleUpload = async () => {
 
       {step === 1 && (
         <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
-          <Typography variant="subtitle1">
-            Preprocessing tasks
-          </Typography>
+          <Typography variant="subtitle1">Preprocessing tasks</Typography>
 
           <PreprocessingTaskSelector
             tasks={MOCK_TASKS}
@@ -314,20 +227,10 @@ const handleUpload = async () => {
           />
 
           <FlexBox sx={{ justifyContent: 'space-between', mt: 3 }}>
-            <Button
-              variant="outlined"
-              color="inherit"
-              onClick={handleBack}
-              disabled={uploading}
-            >
+            <Button variant="outlined" color="inherit" onClick={handleBack} disabled={uploading}>
               Back
             </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleUpload}
-              disabled={uploading}
-            >
+            <Button variant="contained" color="primary" onClick={handleUpload} disabled={uploading}>
               {uploading ? 'Uploading...' : 'Upload dataset'}
             </Button>
           </FlexBox>

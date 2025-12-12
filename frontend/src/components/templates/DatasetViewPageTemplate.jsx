@@ -11,7 +11,10 @@ import DatasetMetaPanel from "../../components/organisms/DatasetMetaPanel";
 // --- helpers ---------------------------------------------------
 
 const formatBytes = (bytes) => {
-  if (!bytes && bytes !== 0) return "-";
+  if (bytes === null || bytes === undefined) return "-";
+  if (Number.isNaN(bytes)) return "-";
+  if (bytes === 0) return "0 Bytes";
+
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const value = bytes / Math.pow(1024, i);
@@ -60,19 +63,35 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
   const metaDataset = useMemo(() => {
     if (!dataset) return null;
 
-    const numericColumns = dataset.processingSummary.metadata.numeric_columns ?? []
-    const categoricalColumns = dataset.processingSummary.metadata.categorical_columns ?? []
+    const processingSummary = dataset.processingSummary || {};
+    const metadata = processingSummary.metadata || {};
+
+    const numericCols = Array.isArray(metadata.numeric_columns)
+      ? metadata.numeric_columns
+      : [];
+    const categoricalCols = Array.isArray(metadata.categorical_columns)
+      ? metadata.categorical_columns
+      : [];
+
+    const numericCount = numericCols.length;
+    const categoricalCount = categoricalCols.length;
+
+    // Ensure correct operator precedence and null safety:
+    const totalColumns =
+      typeof numericCount === "number" && typeof categoricalCount === "number"
+        ? numericCount + categoricalCount
+        : null;
 
     return {
       id: dataset.id,
       name: dataset.originalName || dataset.name,
       size: formatBytes(dataset.sizeBytes),
       uploadedAt: formatDateTime(dataset.createdAt),
-      totalRows:  dataset.processingSummary.processedRows ?? null,
-      totalColumns: dataset.processingSummary.processedColumns ?? null,
+      totalRows: processingSummary.processedRows ?? null,
       preprocessingTasks: dataset.job?.preprocessingTasks || [],
-      categoricalColumns: categoricalColumns.length,
-      numericColumns: numericColumns.length,
+      categoricalColumns: categoricalCount,
+      numericColumns: numericCount,
+      totalColumns,
       lastJobStatus: dataset.job?.status || "PENDING",
       lastJobId: dataset.job?.id,
       lastProcessedAt: dataset.job?.completedAt
@@ -96,6 +115,8 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
 
   const handleModeChange = (newMode) => {
     setMode(newMode);
+    // Optional UX improvement: keep current viewFormat, or reset:
+    // setViewFormat("table");
   };
 
   return (
@@ -127,15 +148,42 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
         <>
           <FlexBox
             sx={{
+              // Responsive layout container
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "1.4fr 2fr" },
-              gap: 2,
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(320px, 1.1fr) minmax(0, 2fr)",
+              },
+              gap: { xs: 2, sm: 2.5 },
               mb: 3,
+
+              // Prevent page-level overflow from children
+              width: "100%",
+              maxWidth: "100%",
+              minWidth: 0,
+              alignItems: "start",
             }}
           >
-            <DatasetMetaPanel dataset={metaDataset} />
+            {/* Left column: metadata */}
+            <FlexBox
+              sx={{
+                minWidth: 0,
+                maxWidth: "100%",
+              }}
+            >
+              <DatasetMetaPanel dataset={metaDataset} />
+            </FlexBox>
 
-            <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            {/* Right column: toggle + view panel */}
+            <FlexBox
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                minWidth: 0,
+                maxWidth: "100%",
+              }}
+            >
               <DatasetViewToggle mode={mode} onChange={handleModeChange} />
 
               <DatasetViewPanel
@@ -156,8 +204,8 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
           </FlexBox>
 
           <Typography variant="caption" color="textSecondary">
-            Note: For performance reasons, only the first few rows of each
-            dataset are displayed here.
+            Note: For performance reasons, only the first few rows of each dataset
+            are displayed here.
           </Typography>
         </>
       )}

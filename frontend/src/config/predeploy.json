@@ -1,5 +1,6 @@
 {
   "apiBaseUrl": "http://63.178.63.105:8000/api",
+  "serverUrl": "http://63.178.63.105:8000/",
   "featureFlags": {},
   "serverTimeout": 30000
 }

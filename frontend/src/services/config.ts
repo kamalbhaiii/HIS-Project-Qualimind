@@ -17,3 +17,4 @@ const cfg = byMode[import.meta.env.MODE] ?? dev;
 export const API_BASE_URL = cfg.apiBaseUrl;
 export const features = cfg.featureFlags;
 export const SERVER_TIMEOUT = cfg.serverTimeout;
+export const SERVER_URL = cfg.serverUrl;

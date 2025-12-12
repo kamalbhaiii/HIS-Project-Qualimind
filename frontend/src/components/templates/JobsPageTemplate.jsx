@@ -124,12 +124,6 @@ const JobsPageTemplate = ({ onNavigate }) => {
       <DashboardSectionHeader
         title="Jobs"
         subtitle="Monitor and inspect your preprocessing jobs"
-        action={
-          <StatusFilterChips
-            value={filterStatus}
-            onChange={handleFilterChange}
-          />
-        }
       />
 
       <FlexBox sx={{ mb: 2 }}>

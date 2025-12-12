@@ -7,6 +7,7 @@ import path from 'path';
 import { redis } from '@loaders/redis';
 import axios from 'axios';
 import cfg from "@config/index"
+import {getIO} from '@core/socket';
 
 type ProcessingSummaryRow = {
   job_id: string;
@@ -52,6 +53,7 @@ interface CreateDatasetParams {
 export async function createDatasetWithJob(
   params: CreateDatasetParams
 ): Promise<DatasetResponseDTO> {
+  const io = getIO();
   const { ownerId, body, file } = params;
 
   if (!file) {
@@ -84,6 +86,12 @@ export async function createDatasetWithJob(
   });
 
   const job = dataset.jobs[0];
+
+  io.to(`user:${ownerId}`).emit("job:update", {
+    jobId: job.id,
+    datasetId: dataset.id,
+    status: job.status,
+  });
 
   await preprocessQueue.add('preprocess-dataset', {
     processingJobId: job.id,

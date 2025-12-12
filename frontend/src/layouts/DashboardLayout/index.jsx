@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import PropTypes from 'prop-types';
 
 import Box from '@mui/material/Box';
@@ -23,6 +30,8 @@ import { useToast } from '../../components/organisms/ToastProvider';
 import { getMe, resendVerificationMail } from '../../services/modules/auth.api';
 import { getJobs } from '../../services/modules/job.api';
 import { getDatasets } from '../../services/modules/dataset.api';
+
+import { getSocket } from '../../services/realtime/socket';
 
 export const DashboardContext = createContext(null);
 export const useDashboard = () => useContext(DashboardContext);
@@ -52,7 +61,6 @@ const DashboardLayout = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Sidebar: collapsed by default, persisted
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     readLSBool(LS_KEYS.collapsed, true)
   );
@@ -67,12 +75,11 @@ const DashboardLayout = ({ children }) => {
   useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.collapsed, String(sidebarCollapsed));
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   }, [sidebarCollapsed]);
 
-  // Fetch user once
+  /* ---------------- User ---------------- */
+
   useEffect(() => {
     let cancelled = false;
 
@@ -82,22 +89,20 @@ const DashboardLayout = ({ children }) => {
         const user = await getMe();
         if (cancelled) return;
 
-        setMe((prev) => {
-          if (prev?.id === user?.id && prev?.emailVerified === user?.emailVerified) return prev;
-          return user;
-        });
+        setMe(user);
 
-        if (user && user.emailVerified === false) {
+        if (user?.emailVerified === false) {
           saveAuth({ token, user });
           setShowVerificationBar(true);
         } else {
           setShowVerificationBar(false);
         }
       } catch (err) {
-        if (cancelled) return;
-        const msg = err?.message || 'Failed to load user information';
-        setError(msg);
-        showToastRef.current?.(msg, 'error');
+        if (!cancelled) {
+          const msg = err?.message || 'Failed to load user information';
+          setError(msg);
+          showToastRef.current?.(msg, 'error');
+        }
       }
     };
 
@@ -107,7 +112,8 @@ const DashboardLayout = ({ children }) => {
     };
   }, []);
 
-  // Fetch dashboard data
+  /* ---------------- Initial data ---------------- */
+
   useEffect(() => {
     if (!me?.id) return;
 
@@ -116,9 +122,10 @@ const DashboardLayout = ({ children }) => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        setError(null);
-
-        const [jobsRes, datasetsRes] = await Promise.all([getJobs(), getDatasets()]);
+        const [jobsRes, datasetsRes] = await Promise.all([
+          getJobs(),
+          getDatasets(),
+        ]);
 
         if (!cancelled) {
           setJobs(jobsRes || []);
@@ -141,18 +148,67 @@ const DashboardLayout = ({ children }) => {
     };
   }, [me?.id]);
 
-  const handleVerifyClick = async () => {
-    try {
-      setVerifyLoading(true);
-      await resendVerificationMail();
-      showToastRef.current?.('Verification email sent. Please check your inbox.', 'success');
-    } catch (err) {
-      const message = err?.response?.data?.message || 'Failed to send verification email.';
-      showToastRef.current?.(message, 'error');
-    } finally {
-      setVerifyLoading(false);
-    }
-  };
+  /* ---------------- Realtime updates ---------------- */
+
+  useEffect(() => {
+    if (!me?.id) return;
+    if (!getToken()) return;
+
+    const socket = getSocket();
+
+    const onJobUpdate = (evt) => {
+      // evt = { jobId, datasetId, status, message }
+
+      /* ---- Toasts ---- */
+      if (evt.status === 'RUNNING') {
+        showToastRef.current?.('Preprocessing started…', 'info');
+      }
+      if (evt.status === 'SUCCESS') {
+        showToastRef.current?.('Dataset preprocessing completed.', 'success');
+      }
+      if (evt.status === 'FAILED') {
+        showToastRef.current?.(evt.message || 'Dataset preprocessing failed.', 'error');
+      }
+
+      /* ---- Update jobs list ---- */
+      setJobs((prev) => {
+        const idx = prev.findIndex((j) => j.id === evt.jobId);
+        if (idx === -1) {
+          return [
+            { id: evt.jobId, datasetId: evt.datasetId, status: evt.status },
+            ...prev,
+          ];
+        }
+        const next = [...prev];
+        next[idx] = { ...next[idx], status: evt.status };
+        return next;
+      });
+
+      /* ---- Update datasets list (THIS drives your table) ---- */
+      setDatasets((prev) => {
+        const idx = prev.findIndex((d) => d.id === evt.datasetId);
+        if (idx === -1) return prev;
+
+        const current = prev[idx];
+
+        const nextJob = current.job
+          ? { ...current.job, status: evt.status }
+          : { id: evt.jobId, status: evt.status };
+
+        const next = [...prev];
+        next[idx] = { ...current, job: nextJob };
+        return next;
+      });
+    };
+
+    socket.on('job:update', onJobUpdate);
+
+    return () => {
+      socket.off('job:update', onJobUpdate);
+    };
+  }, [me?.id]);
+
+  /* ---------------- UI ---------------- */
 
   const navItems = useMemo(
     () => [
@@ -182,7 +238,6 @@ const DashboardLayout = ({ children }) => {
       }}
     >
       <CssBaseline />
-      {/* Ensure the browser window doesn't scroll; only the Page region does */}
       <GlobalStyles
         styles={{
           'html, body, #root': {
@@ -192,16 +247,7 @@ const DashboardLayout = ({ children }) => {
         }}
       />
 
-      {/* Root: full viewport, no browser scroll */}
-      <Box
-        sx={{
-          display: 'flex',
-          height: '100vh',
-          overflow: 'hidden',
-          bgcolor: 'background.default',
-        }}
-      >
-        {/* Sidebar: fixed (no scroll) */}
+      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         <SidebarNav
           items={navItems}
           collapsed={sidebarCollapsed}
@@ -209,41 +255,26 @@ const DashboardLayout = ({ children }) => {
           headerContentExpanded={<Logo size={32} src={LogoImage} />}
         />
 
-        {/* Page: the ONLY scroll container */}
-        <Box
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            height: '100vh',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-          }}
-        >
-          {/* Page padding + max width inside the scroller */}
-          <Box
-            sx={{
-              px: { xs: 2, sm: 3 },
-              py: { xs: 2, sm: 3 },
-              maxWidth: 1200,
-              mx: 'auto',
-              width: '100%',
-            }}
-          >
+        <Box sx={{ flex: 1, overflowY: 'auto' }}>
+          <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
             {showVerificationBar && (
-              <AccountVerificationBar onVerifyClick={handleVerifyClick} loading={verifyLoading} />
+              <AccountVerificationBar
+                onVerifyClick={async () => {
+                  try {
+                    setVerifyLoading(true);
+                    await resendVerificationMail();
+                    showToastRef.current?.('Verification email sent.', 'success');
+                  } catch {
+                    showToastRef.current?.('Failed to send verification email.', 'error');
+                  } finally {
+                    setVerifyLoading(false);
+                  }
+                }}
+                loading={verifyLoading}
+              />
             )}
 
-            <SurfaceCard
-              elevation={0}
-              sx={{
-                borderRadius: 3,
-                border: (t) => `1px solid ${t.palette.divider}`,
-                bgcolor: 'background.paper',
-                p: { xs: 2, sm: 3 },
-              }}
-            >
-              {children}
-            </SurfaceCard>
+            <SurfaceCard sx={{ p: 3 }}>{children}</SurfaceCard>
           </Box>
         </Box>
       </Box>
