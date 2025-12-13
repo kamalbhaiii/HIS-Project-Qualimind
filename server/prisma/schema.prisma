@@ -45,7 +45,7 @@ model ProcessingJob {
   dataset              Dataset    @relation(fields: [datasetId], references: [id])
 
   preprocessingTasks   Json?      @db.JsonB
-  preprocessingConfig  Json?      @db.JsonB   // NEW
+  preprocessingConfig  Json?      @db.JsonB
 
   status               JobStatus  @default(PENDING)
   errorMessage         String?

@@ -124,6 +124,7 @@ function toJobDTO(job: any | undefined): JobDTO | null {
     status: job.status,
     errorMessage: job.errorMessage ?? null,
     preprocessingTasks: job.preprocessingTasks ?? null,
+    preprocessingConfig: job.preprocessingConfig ?? null,
     resultKey: job.resultKey ?? null,
     createdAt: job.createdAt.toISOString(),
     startedAt: job.startedAt ? job.startedAt.toISOString() : null,

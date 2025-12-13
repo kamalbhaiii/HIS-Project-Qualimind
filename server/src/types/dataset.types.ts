@@ -7,7 +7,7 @@ export interface JobDTO {
   resultKey: string | null;
 
   preprocessingTasks: string | string[] | null;
-  preprocessingConfig?: any | null; // NEW
+  preprocessingConfig?: any | null;
 
   createdAt: string;
   startedAt: string | null;
