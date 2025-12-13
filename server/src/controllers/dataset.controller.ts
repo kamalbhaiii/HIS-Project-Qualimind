@@ -5,6 +5,7 @@ import {
   getDatasetById,
   updateDataset,
   deleteDataset,
+  restartFailedProcessingJob
 } from '../services/dataset.service';
 import { parseJsonField, validatePreprocessingConfig, normalizePreprocessingTasks } from '../utils/preprocessing.util'
 
@@ -51,6 +52,46 @@ export async function uploadDatasetController(req: Request, res: Response, next:
     if (err instanceof Error && err.message === 'FILE_REQUIRED') {
       return res.status(400).json({ message: 'File is required' });
     }
+    return next(err);
+  }
+}
+
+export async function restartProcessingJobController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const user = req.authUser;
+    if (!user) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const jobId = String(req.params.jobId || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ message: 'jobId is required' });
+    }
+
+    const result = await restartFailedProcessingJob({
+      ownerId: user.sub,
+      jobId,
+    });
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    // map known errors to HTTP codes
+    const code = err?.code || err?.name;
+
+    if (code === 'JOB_NOT_FOUND') {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    if (code === 'FORBIDDEN') {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    if (code === 'JOB_NOT_RESTARTABLE') {
+      return res.status(409).json({ message: err.message });
+    }
+
     return next(err);
   }
 }

@@ -21,12 +21,15 @@ import Tooltip from '@mui/material/Tooltip';
 import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import Checkbox from '@mui/material/Checkbox';
+import CircularProgress from '@mui/material/CircularProgress';
 
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 
 import FilterListIcon from '@mui/icons-material/FilterList';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import ReplayIcon from '@mui/icons-material/Replay';
+
 import { useNavigate } from 'react-router-dom';
 
 const ROWS_PER_PAGE = 4;
@@ -47,7 +50,7 @@ const SORT_KEYS = {
   STATUS: 'status',
 };
 
-const DatasetListTable = ({ datasets, onRemoveDataset }) => {
+const DatasetListTable = ({ datasets, onRemoveDataset, onRestartJob }) => {
   const navigate = useNavigate();
   const theme = useTheme();
   const { showToast } = useToast();
@@ -62,6 +65,9 @@ const DatasetListTable = ({ datasets, onRemoveDataset }) => {
   const [filtersOpen, setFiltersOpen] = React.useState(false);
 
   const [selectedIds, setSelectedIds] = React.useState(() => new Set());
+  const [hoveredId, setHoveredId] = React.useState(null);
+
+  const [restartingJobId, setRestartingJobId] = React.useState(null);
 
   const totalPages = Math.max(1, Math.ceil(datasets.length / ROWS_PER_PAGE));
 
@@ -245,120 +251,150 @@ const DatasetListTable = ({ datasets, onRemoveDataset }) => {
 
   const canOpenDataset = (ds) => ds?.lastJobStatus === 'SUCCESS';
 
-  // NEW: card click handler (mobile/tablet)
+  const canRestart = (ds) =>
+    ds?.lastJobStatus === 'FAILED' && !!ds?.lastJobId && typeof onRestartJob === 'function';
+
+  const handleRestart = async (e, ds) => {
+    if (e) e.stopPropagation();
+    if (!canRestart(ds)) return;
+
+    try {
+      setRestartingJobId(ds.lastJobId);
+      await onRestartJob(ds.lastJobId);
+      showToast?.('Restart requested. The job has been re-queued.', 'success');
+    } catch (err) {
+      showToast?.(err?.message || 'Failed to restart job', 'error');
+    } finally {
+      setRestartingJobId(null);
+    }
+  };
+
+  // Card click handler (mobile/tablet)
   const handleCardOpen = (ds) => {
     if (canOpenDataset(ds)) {
       navigate(`/dataset-view/${ds.id}`);
       return;
     }
-    showToast?.(
-      'View is not available until the latest run finishes successfully.',
-      'info'
-    );
+    showToast?.('View is not available until the latest run finishes successfully.', 'info');
   };
 
-// Mobile/tablet cards: single-row layout, no overflow, checkbox in first row
-const DatasetCardRow = ({ ds }) => {
-  const clickable = canOpenDataset(ds);
+  // Mobile/tablet cards: single-row layout, no overflow, checkbox in first row
+  const DatasetCardRow = ({ ds }) => {
+    const clickable = canOpenDataset(ds);
 
-  return (
-    <Box
-      role="button"
-      tabIndex={0}
-      onClick={() => handleCardOpen(ds)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleCardOpen(ds);
-        }
-      }}
-      sx={{
-        border: (t) => `1px solid ${t.palette.divider}`,
-        borderRadius: 2,
-        p: 1.25,
-        bgcolor: 'background.paper',
-        minWidth: 0,
-        cursor: clickable ? 'pointer' : 'default',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        overflow: 'hidden',
-
-        '&:hover': clickable ? { boxShadow: 2 } : undefined,
-        outline: 'none',
-        '&:focus-visible': {
-          outline: (t) => `2px solid ${t.palette.primary.main}`,
-          outlineOffset: '2px',
-        },
-      }}
-    >
-      {/* Checkbox (first row) */}
-      <Checkbox
-        size="small"
-        checked={selectedIds.has(ds.id)}
-        onClick={(e) => e.stopPropagation()}
-        onChange={() => toggleOne(ds.id)}
-        inputProps={{ 'aria-label': `select dataset ${ds.name}` }}
-        sx={{ p: 0.5 }}
-      />
-
-      {/* Middle content (single line, ellipsis) */}
+    return (
       <Box
+        role="button"
+        tabIndex={0}
+        onClick={() => handleCardOpen(ds)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleCardOpen(ds);
+          }
+        }}
         sx={{
+          border: (t) => `1px solid ${t.palette.divider}`,
+          borderRadius: 2,
+          p: 1.25,
+          bgcolor: 'background.paper',
           minWidth: 0,
-          flex: 1,
+          cursor: clickable ? 'pointer' : 'default',
           display: 'flex',
           alignItems: 'center',
           gap: 1,
           overflow: 'hidden',
+          '&:hover': clickable ? { boxShadow: 2 } : undefined,
+          outline: 'none',
+          '&:focus-visible': {
+            outline: (t) => `2px solid ${t.palette.primary.main}`,
+            outlineOffset: '2px',
+          },
         }}
       >
-        {/* Name */}
-        <Typography
-          variant="body2"
-          sx={{ fontWeight: 700, minWidth: 0 }}
-          noWrap
-          title={ds.name}
-        >
-          {ds.name}
-        </Typography>
+        {/* Checkbox */}
+        <Checkbox
+          size="small"
+          checked={selectedIds.has(ds.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleOne(ds.id)}
+          inputProps={{ 'aria-label': `select dataset ${ds.name}` }}
+          sx={{ p: 0.5 }}
+        />
 
-        {/* Secondary meta (kept in same row, ellipsis if needed) */}
-        <Typography
-          variant="caption"
-          color="textSecondary"
-          sx={{ minWidth: 0, flex: 1 }}
-          noWrap
-          title={`ID: ${ds.id} • ${ds.uploadedAt} • ${ds.size}`}
+        {/* Middle content */}
+        <Box
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            overflow: 'hidden',
+          }}
         >
-          {`ID: ${ds.id} • ${ds.uploadedAt} • ${ds.size}`}
-        </Typography>
-      </Box>
-
-      {/* Status (right) */}
-      <Box sx={{ flexShrink: 0 }}>
-        {ds.lastJobStatus ? (
-          <StatusChip status={ds.lastJobStatus} />
-        ) : (
-          <Typography variant="caption" color="textSecondary" noWrap>
-            No runs
+          <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={ds.name}>
+            {ds.name}
           </Typography>
-        )}
+
+          <Typography
+            variant="caption"
+            color="textSecondary"
+            sx={{ minWidth: 0, flex: 1 }}
+            noWrap
+            title={`ID: ${ds.id} • ${ds.uploadedAt} • ${ds.size}`}
+          >
+            {`ID: ${ds.id} • ${ds.uploadedAt} • ${ds.size}`}
+          </Typography>
+        </Box>
+
+        {/* Actions + Status */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+          {canRestart(ds) && (
+            <Tooltip title="Restart failed job">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={(e) => handleRestart(e, ds)}
+                  disabled={restartingJobId === ds.lastJobId}
+                  aria-label={`restart job ${ds.lastJobId}`}
+                  sx={{
+                    border: (t) => `1px solid ${t.palette.divider}`,
+                    borderRadius: 2,
+                  }}
+                >
+                  {restartingJobId === ds.lastJobId ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <ReplayIcon fontSize="small" />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+
+          {ds.lastJobStatus ? (
+            <StatusChip status={ds.lastJobStatus} />
+          ) : (
+            <Typography variant="caption" color="textSecondary" noWrap>
+              No runs
+            </Typography>
+          )}
+        </Box>
       </Box>
-    </Box>
-  );
-};
+    );
+  };
 
-DatasetCardRow.propTypes = {
-  ds: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    name: PropTypes.string.isRequired,
-    size: PropTypes.string.isRequired,
-    uploadedAt: PropTypes.string.isRequired,
-    lastJobStatus: PropTypes.oneOf(['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', null]),
-  }).isRequired,
-};
-
+  DatasetCardRow.propTypes = {
+    ds: PropTypes.shape({
+      id: PropTypes.string.isRequired,
+      name: PropTypes.string.isRequired,
+      size: PropTypes.string.isRequired,
+      uploadedAt: PropTypes.string.isRequired,
+      lastJobStatus: PropTypes.oneOf(['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', null]),
+      lastJobId: PropTypes.string,
+    }).isRequired,
+  };
 
   return (
     <SurfaceCard
@@ -430,11 +466,7 @@ DatasetCardRow.propTypes = {
       {/* Filters */}
       <Collapse in={filtersOpen} timeout="auto" unmountOnExit>
         <Box sx={{ mb: 1.5 }}>
-          <DatasetTableFilters
-            filters={filters}
-            onChange={handleFiltersChange}
-            onReset={handleFiltersReset}
-          />
+          <DatasetTableFilters filters={filters} onChange={handleFiltersChange} onReset={handleFiltersReset} />
         </Box>
         <Divider sx={{ mb: 1.5 }} />
       </Collapse>
@@ -476,6 +508,7 @@ DatasetCardRow.propTypes = {
                 <TableCell sx={{ width: 120 }}>Size</TableCell>
                 <TableCell sx={{ width: 140 }}>Uploaded</TableCell>
                 <TableCell sx={{ width: 160 }}>Last status</TableCell>
+                <TableCell sx={{ width: 90, textAlign: 'right' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
 
@@ -484,7 +517,12 @@ DatasetCardRow.propTypes = {
                 const clickable = canOpenDataset(ds);
 
                 return (
-                  <TableRow key={ds.id} hover>
+                  <TableRow
+                    key={ds.id}
+                    hover
+                    onMouseEnter={() => setHoveredId(ds.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
                     <TableCell sx={stickyCheckboxCellSx(false)}>
                       <Checkbox
                         size="small"
@@ -565,24 +603,15 @@ DatasetCardRow.propTypes = {
                       )}
                     </TableCell>
 
-                    <TableCell
-                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      title={ds.name}
-                    >
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ds.name}>
                       {ds.name}
                     </TableCell>
 
-                    <TableCell
-                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      title={ds.size}
-                    >
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ds.size}>
                       {ds.size}
                     </TableCell>
 
-                    <TableCell
-                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      title={ds.uploadedAt}
-                    >
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ds.uploadedAt}>
                       {ds.uploadedAt}
                     </TableCell>
 
@@ -593,6 +622,33 @@ DatasetCardRow.propTypes = {
                         <Typography variant="caption" color="textSecondary">
                           No runs
                         </Typography>
+                      )}
+                    </TableCell>
+
+                    <TableCell sx={{ textAlign: 'right' }}>
+                      {canRestart(ds) && hoveredId === ds.id ? (
+                        <Tooltip title="Restart failed job">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => handleRestart(e, ds)}
+                              disabled={restartingJobId === ds.lastJobId}
+                              aria-label={`restart job ${ds.lastJobId}`}
+                              sx={{
+                                border: (t) => `1px solid ${t.palette.divider}`,
+                                borderRadius: 2,
+                              }}
+                            >
+                              {restartingJobId === ds.lastJobId ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <ReplayIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <Box sx={{ height: 32 }} />
                       )}
                     </TableCell>
                   </TableRow>
@@ -634,6 +690,7 @@ DatasetListTable.propTypes = {
     })
   ).isRequired,
   onRemoveDataset: PropTypes.func,
+  onRestartJob: PropTypes.func,
 };
 
 export default DatasetListTable;

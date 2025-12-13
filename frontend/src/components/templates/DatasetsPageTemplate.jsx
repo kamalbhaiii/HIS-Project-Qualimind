@@ -8,6 +8,8 @@ import DatasetUploadPanel from '../organisms/DatasetUploadPanel';
 import DashboardSectionHeader from '../molecules/DashboardSectionHeader';
 import {deleteDatasetByID, getDatasets} from '../../services/modules/dataset.api'
 import { useToast } from '../organisms/ToastProvider';
+import { restartJob } from '../../services/modules/job.api';
+
 
 const DatasetsPageTemplate = () => {
   const {datasets, setDatasets, loading, setLoading, error, setError} = useDashboard();
@@ -70,6 +72,17 @@ const DatasetsPageTemplate = () => {
     // Here you can call an API to create a new processing job for the dataset
     // eslint-disable-next-line no-console
   };
+
+  const handleRestartJob = async (jobId) => {
+  try {
+    await restartJob(jobId);
+    showToast('Restart requested. The job has been re-queued.', 'success');
+    await fetchDatasets();
+  } catch (err) {
+    showToast(err?.message || 'Failed to restart job', 'error');
+  }
+};
+
 
   const handleUpload = async (files) => {
     if (!files || !files.length) return;
@@ -140,6 +153,7 @@ const DatasetsPageTemplate = () => {
             onViewDataset={handleViewDataset}
             onStartJob={handleStartJob}
             onRemoveDataset={handleRemoveDataset}
+            onRestartJob={handleRestartJob}
           />
         )}
 

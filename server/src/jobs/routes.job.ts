@@ -6,6 +6,7 @@ import {
   exportJobResultController,
 } from './controller.job';
 import {authMiddleware} from "../middlewares/protectedRoutes"
+import { restartProcessingJobController } from 'src/controllers/dataset.controller';
 
 const router = Router();
 
@@ -20,5 +21,8 @@ router.get('/:id/result', authMiddleware, getJobResultController);
 
 // GET /api/jobs/:id/export?format=csv|json|txt
 router.get('/:id/export', authMiddleware, exportJobResultController);
+
+// POST /api/jobs/:jobId/restart
+router.post('/:jobId/restart', authMiddleware, restartProcessingJobController);
 
 export const jobRouter = router;

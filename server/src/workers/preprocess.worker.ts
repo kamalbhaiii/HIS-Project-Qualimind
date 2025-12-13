@@ -12,6 +12,7 @@ interface PreprocessJobData {
   datasetId: string;
   preprocessingTasks?: string[];
   preprocessingConfig?: any;
+  restart?: boolean;
 }
 
 const pub = redis.duplicate();
@@ -45,6 +46,23 @@ const worker = new Worker<PreprocessJobData>(
 
     if (!dataset) {
       throw new Error(`Dataset ${datasetId} not found`);
+    }
+
+    const currentJob = await prisma.processingJob.findUnique({
+      where: { id: processingJobId },
+      select: { status: true },
+    });
+
+    if (!currentJob) {
+      throw new Error(`ProcessingJob ${processingJobId} not found`);
+    }
+
+    if (currentJob.status !== JobStatus.PENDING) {
+      logger.warn('Skipping preprocess job because status is not PENDING', {
+        processingJobId,
+        status: currentJob.status,
+      });
+      return { skipped: true, status: currentJob.status };
     }
 
     // 1) RUNNING

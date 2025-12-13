@@ -49,6 +49,25 @@ clean_handler <- function(req, res, jobId) {
     return(list(error = "job not found in PostgreSQL"))
   }
 
+  # Reject if job is already running (prevents duplicate workers or retries overlapping)
+current_status <- as.character(job$status[1] %||% "")
+if (current_status == "RUNNING") {
+  res$status <- 409
+  return(list(error = "Job is already RUNNING and cannot be restarted concurrently", jobId = jobId))
+}
+
+# Optional strict policy: only allow PENDING (recommended)
+if (!(current_status %in% c("PENDING"))) {
+  # If you prefer to allow FAILED directly, use: c("PENDING","FAILED")
+  res$status <- 409
+  return(list(
+    error = paste0("Job is not eligible to run. Expected status=PENDING, got ", current_status),
+    jobId = jobId,
+    status = current_status
+  ))
+}
+
+
   file_path <- job$storagePath[1]
   filename  <- job$originalName[1]
 

@@ -383,3 +383,107 @@ export async function deleteDataset(
 
   return true;
 }
+
+class ServiceError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = code;
+  }
+}
+
+interface RestartFailedProcessingJobParams {
+  ownerId: string;
+  jobId: string;
+}
+
+/**
+ * Restarts a FAILED ProcessingJob by:
+ * - validating ownership + status
+ * - resetting job fields
+ * - re-queueing preprocess job with same ProcessingJob ID
+ */
+export async function restartFailedProcessingJob(
+  params: RestartFailedProcessingJobParams
+) {
+  const { ownerId, jobId } = params;
+
+  // Fetch job + dataset owner
+  const job = await prisma.processingJob.findUnique({
+    where: { id: jobId },
+    include: {
+      dataset: {
+        select: { id: true, ownerId: true },
+      },
+    },
+  });
+
+  if (!job) {
+    throw new ServiceError('JOB_NOT_FOUND', `Job ${jobId} not found`);
+  }
+
+  if (job.dataset.ownerId !== ownerId) {
+    throw new ServiceError('FORBIDDEN', 'You do not own this job');
+  }
+
+  if (job.status !== JobStatus.FAILED) {
+    throw new ServiceError(
+      'JOB_NOT_RESTARTABLE',
+      `Only FAILED jobs can be restarted. Current status=${job.status}`
+    );
+  }
+
+  // Reset job status
+  const updated = await prisma.processingJob.update({
+    where: { id: jobId },
+    data: {
+      status: JobStatus.PENDING,
+      errorMessage: null,
+      resultKey: null,
+      startedAt: null,
+      completedAt: null,
+      // Optional: if you add attemptCount in schema later:
+      // attemptCount: { increment: 1 },
+      // restartedAt: new Date(),
+    },
+  });
+
+  // Notify realtime (optional)
+  try {
+    const io = getIO?.();
+    if (io) {
+      io.to(`user:${ownerId}`).emit('job:update', {
+        ownerId,
+        jobId,
+        datasetId: job.datasetId,
+        status: 'PENDING',
+        message: 'Job restarted and queued',
+      });
+    }
+  } catch (e: any) {
+    // do not fail restart because realtime failed
+    return e;
+  }
+
+  // Re-queue with stored tasks/config
+  // IMPORTANT: use unique BullMQ jobId so it doesn't dedupe
+  await preprocessQueue.add(
+    'preprocess-dataset',
+    {
+      processingJobId: jobId,
+      datasetId: job.datasetId,
+      preprocessingTasks: (job.preprocessingTasks as any) ?? [],
+      preprocessingConfig: (job.preprocessingConfig as any) ?? null,
+      restart: true,
+    },
+    {
+      jobId: `${jobId}:restart:${Date.now()}`,
+    }
+  );
+
+  return {
+    message: 'Job restarted',
+    job: updated,
+  };
+}
