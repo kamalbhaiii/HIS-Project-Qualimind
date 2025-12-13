@@ -10,6 +10,8 @@ source("R/storage.R")
 source("R/preprocessing.R")
 source("R/jobs.R")
 source("R/routes.R")
+source("R/preprocessing_config.R")
+
 
 #* @apiTitle R Categorical Data Preprocessing API
 #* @apiDescription Categorical & numerical preprocessing pipeline with Redis and PostgreSQL storage
