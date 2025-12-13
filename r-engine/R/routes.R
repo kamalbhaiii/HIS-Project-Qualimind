@@ -54,7 +54,7 @@ clean_handler <- function(req, res, jobId) {
 
   update_processing_job_status(jobId, status = "RUNNING", mark_started = TRUE)
 
-  # Parse body once for optional overrides (tasks, inline data, filename)
+  # Parse body once for optional overrides (tasks, config, inline data, filename)
   body <- tryCatch({
     if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody) else NULL
   }, error = function(e) {
@@ -65,6 +65,12 @@ clean_handler <- function(req, res, jobId) {
   preprocessing_tasks <- NULL
   if (!is.null(body) && !is.null(body$preprocessingTasks)) {
     preprocessing_tasks <- normalize_tasks(body$preprocessingTasks)
+  }
+
+  # Read preprocessingConfig from body (if provided)
+  preprocessing_config <- NULL
+  if (!is.null(body) && !is.null(body$preprocessingConfig)) {
+    preprocessing_config <- body$preprocessingConfig
   }
 
   df <- NULL
@@ -110,7 +116,11 @@ clean_handler <- function(req, res, jobId) {
 
   err_msg <- NULL
   result <- tryCatch({
-    preprocess_categorical_data(df, tasks = preprocessing_tasks)
+    if (!is.null(preprocessing_config)) {
+      preprocess_with_config(df, preprocessing_config)
+    } else {
+      preprocess_categorical_data(df, tasks = preprocessing_tasks)
+    }
   }, error = function(e) {
     err_msg <<- e$message
     NULL
@@ -129,12 +139,20 @@ clean_handler <- function(req, res, jobId) {
 
   processed_df <- result$data
   metadata <- result$metadata
-  metadata$filename    <- jsonlite::unbox(filename)
-  metadata$jobId       <- jsonlite::unbox(jobId)
-  metadata$datasetId   <- jsonlite::unbox(job$datasetId[1])
-  # ensure requested_tasks in metadata even if tasks were not provided
-  if (is.null(metadata$requested_tasks)) {
-    metadata$requested_tasks <- normalize_tasks(preprocessing_tasks) %||% DEFAULT_PREPROCESSING_TASKS
+
+  # Core identifiers
+  metadata$filename  <- jsonlite::unbox(filename)
+  metadata$jobId     <- jsonlite::unbox(jobId)
+  metadata$datasetId <- jsonlite::unbox(job$datasetId[1])
+
+  # Ensure mode is present (tasks vs config)
+  metadata$preprocessing_mode <- jsonlite::unbox(metadata$preprocessing_mode %||% if (!is.null(preprocessing_config)) "config" else "tasks")
+
+  # Ensure requested_tasks in metadata even if tasks were not provided (tasks-mode)
+  if (metadata$preprocessing_mode == "tasks") {
+    if (is.null(metadata$requested_tasks)) {
+      metadata$requested_tasks <- normalize_tasks(preprocessing_tasks) %||% DEFAULT_PREPROCESSING_TASKS
+    }
   }
 
   result_key <- paste0("processed:", jobId)
@@ -169,7 +187,7 @@ clean_handler <- function(req, res, jobId) {
     jobId        = jobId,
     status       = if (postgres_success) "cleaned" else "failed",
     rows         = nrow(processed_df),
-    originalRows = metadata$original_rows,
+    originalRows = metadata$original_rows %||% metadata$original_rows,  # preserve older field name usage
     columns      = ncol(processed_df),
     storage      = list(
       redis    = ifelse(redis_success, "success", "failed"),
