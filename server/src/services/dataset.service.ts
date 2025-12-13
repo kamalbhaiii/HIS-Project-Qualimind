@@ -50,17 +50,14 @@ interface CreateDatasetParams {
   file: Express.Multer.File;
 }
 
-export async function createDatasetWithJob(
-  params: CreateDatasetParams
-): Promise<DatasetResponseDTO> {
+export async function createDatasetWithJob(params: CreateDatasetParams): Promise<DatasetResponseDTO> {
   const io = getIO();
   const { ownerId, body, file } = params;
 
-  if (!file) {
-    throw new Error('FILE_REQUIRED');
-  }
+  if (!file) throw new Error('FILE_REQUIRED');
 
   const preprocessingTasks = body.preprocessingTasks ?? [];
+  const preprocessingConfig = body.preprocessingConfig ?? null;
 
   const dataset = await prisma.dataset.create({
     data: {
@@ -74,14 +71,12 @@ export async function createDatasetWithJob(
         create: {
           status: JobStatus.PENDING,
           preprocessingTasks,
+          preprocessingConfig, // NEW
         },
       },
     },
     include: {
-      jobs: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
+      jobs: { orderBy: { createdAt: 'desc' }, take: 1 },
     },
   });
 
@@ -97,11 +92,11 @@ export async function createDatasetWithJob(
     processingJobId: job.id,
     datasetId: dataset.id,
     preprocessingTasks,
+    preprocessingConfig, // NEW
   });
 
   return toDatasetResponse(dataset);
 }
-
 
 /**
  * Safely read a text file, returning null if it does not exist.

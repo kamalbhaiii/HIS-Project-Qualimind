@@ -11,6 +11,7 @@ interface PreprocessJobData {
   processingJobId: string;
   datasetId: string;
   preprocessingTasks?: string[];
+  preprocessingConfig?: any;
 }
 
 const pub = redis.duplicate();
@@ -27,7 +28,7 @@ async function publishJobUpdate(evt: JobUpdateEvent) {
 const worker = new Worker<PreprocessJobData>(
   'preprocess',
   async (job: Job<PreprocessJobData>) => {
-    const { processingJobId, datasetId } = job.data;
+    const { processingJobId, datasetId, preprocessingTasks, preprocessingConfig } = job.data;
 
     logger.info(`Starting preprocessing job ${processingJobId} for dataset ${datasetId}`);
 
@@ -70,6 +71,8 @@ const worker = new Worker<PreprocessJobData>(
         datasetPath: dataset.storagePath,
         filename: dataset.originalName,
         mimeType: dataset.mimeType,
+        preprocessingTasks,
+        preprocessingConfig,
       });
 
       const resultKey = `processed:${processingJobId}`;

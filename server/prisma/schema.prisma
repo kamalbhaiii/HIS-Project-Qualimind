@@ -40,16 +40,19 @@ model Dataset {
 }
 
 model ProcessingJob {
-  id           String     @id @default(cuid())
-  datasetId    String
-  dataset      Dataset    @relation(fields: [datasetId], references: [id])
-  preprocessingTasks Json?    @db.JsonB
-  status       JobStatus  @default(PENDING)
-  errorMessage String?
-  resultKey    String?    // e.g. Redis key storing processed output
-  createdAt    DateTime   @default(now())
-  startedAt    DateTime?
-  completedAt  DateTime?
+  id                  String     @id @default(cuid())
+  datasetId            String
+  dataset              Dataset    @relation(fields: [datasetId], references: [id])
+
+  preprocessingTasks   Json?      @db.JsonB
+  preprocessingConfig  Json?      @db.JsonB   // NEW
+
+  status               JobStatus  @default(PENDING)
+  errorMessage         String?
+  resultKey            String?
+  createdAt            DateTime   @default(now())
+  startedAt            DateTime?
+  completedAt          DateTime?
 }
 
 enum JobStatus {

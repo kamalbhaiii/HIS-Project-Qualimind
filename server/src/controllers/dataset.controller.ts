@@ -6,54 +6,42 @@ import {
   updateDataset,
   deleteDataset,
 } from '../services/dataset.service';
+import { parseJsonField, validatePreprocessingConfig, normalizePreprocessingTasks } from '../utils/preprocessing.util'
 
-function normalizePreprocessingTasks(input: unknown): string[] {
-  if (!input) return [];
-
-  if (Array.isArray(input)) {
-    // support multiple values or comma-separated entries
-    return input
-      .flatMap(v => String(v).split(','))
-      .map(s => s.trim())
-      .filter(Boolean);
-  }
-
-  return String(input)
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
-export async function uploadDatasetController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export async function uploadDatasetController(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.authUser;
-    if (!user) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
+    if (!user) return res.status(401).json({ message: 'Unauthorized' });
 
     const file = req.file;
-    if (!file) {
-      return res.status(400).json({ message: 'File is required' });
-    }
+    if (!file) return res.status(400).json({ message: 'File is required' });
 
     const body = req.body as {
       name?: string;
       preprocessingTasks?: string | string[];
+      preprocessingConfig?: string; // multipart string
     };
 
-    const preprocessingTasks = normalizePreprocessingTasks(
-      body.preprocessingTasks
-    );
+    const preprocessingTasks = normalizePreprocessingTasks(body.preprocessingTasks);
+
+    const parsedConfig = parseJsonField(body.preprocessingConfig);
+    let preprocessingConfig: any | null = null;
+
+    if (body.preprocessingConfig != null) {
+      if (!parsedConfig) return res.status(400).json({ message: 'Invalid JSON in preprocessingConfig' });
+
+      const v = validatePreprocessingConfig(parsedConfig);
+      if (!v.ok) return res.status(400).json({ message: v.error });
+
+      preprocessingConfig = v.value;
+    }
 
     const dataset = await createDatasetWithJob({
       ownerId: user.sub,
       body: {
         name: body.name,
         preprocessingTasks,
+        preprocessingConfig,
       },
       file,
     });

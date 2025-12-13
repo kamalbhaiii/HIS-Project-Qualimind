@@ -5,7 +5,10 @@ export interface JobDTO {
   status: JobStatus;
   errorMessage: string | null;
   resultKey: string | null;
+
   preprocessingTasks: string | string[] | null;
+  preprocessingConfig?: any | null; // NEW
+
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -14,7 +17,9 @@ export interface JobDTO {
 export interface DatasetUploadDTO {
   name?: string;
   preprocessingTasks?: string | string[];
+  preprocessingConfig?: any; // NEW
 }
+
 
 export interface DatasetProcessingSummaryDTO {
   jobId: string;
