@@ -9,7 +9,15 @@ normalize_config <- function(cfg) {
   if (!is.list(cfg)) stop("preprocessingConfig must be an object")
 
   steps <- cfg$steps
-  if (is.null(steps) || !is.list(steps)) stop("preprocessingConfig.steps must be an array")
+  if (is.null(steps)) stop("preprocessingConfig.steps must be an array")
+
+  if (is.data.frame(steps)) {
+    steps <- lapply(seq_len(nrow(steps)), function(i) {
+      as.list(steps[i, , drop = FALSE])
+    })
+  }
+
+  if (!is.list(steps)) stop("preprocessingConfig.steps must be an array")
 
   # ensure each step is list-like and normalize keys
   norm_steps <- lapply(seq_along(steps), function(i) {

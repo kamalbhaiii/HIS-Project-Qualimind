@@ -56,10 +56,11 @@ clean_handler <- function(req, res, jobId) {
 
   # Parse body once for optional overrides (tasks, config, inline data, filename)
   body <- tryCatch({
-    if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody) else NULL
+    if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody, simplifyVector = FALSE) else NULL
   }, error = function(e) {
     NULL
   })
+
 
   # Normalize preprocessingTasks from body (if provided)
   preprocessing_tasks <- NULL
