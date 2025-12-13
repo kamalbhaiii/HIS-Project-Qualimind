@@ -8,23 +8,75 @@ import Typography from '../../atoms/CustomTypography';
 import Button from '../../atoms/CustomButton';
 import ColumnSelectionList from '../../molecules/ColumnSelectionList';
 import PreprocessingTaskSelector from '../../molecules/PreprocessingTaskSelector';
+import PreprocessingConfigSelector from '../../molecules/PreprocessingConfigSelectorV2';
 import InputFieldWithLabel from '../../molecules/InputFieldWithLabel';
 
 import { uploadDataset } from '../../../services/modules/dataset.api';
 import { useToast } from '../../organisms/ToastProvider';
 import { excelToCsv, jsonFileToCsv } from '../../../lib/fileConverters';
+import { inferColumnTypes } from '../../../helpers/type_inference.helper';
 
-export const MOCK_TASKS = [
-  { key: 'handle_missing_categoricals', label: 'Handle missing categorical values' },
-  { key: 'clean_category_labels', label: 'Clean & standardize categorical labels' },
-  { key: 'reduce_cardinality', label: 'Reduce high-cardinality & rare categories' },
-  { key: 'feature_engineering', label: 'Feature engineering (categorical interactions)' },
-  { key: 'encode_categoricals', label: 'Encode categorical variables' },
-  { key: 'numeric_imputation', label: 'Impute missing numeric values' },
-  { key: 'numeric_scaling', label: 'Scale numeric features' },
+export const TASK_REGISTRY = [
+  {
+    taskKey: 'handle_missing_categoricals',
+    configTask: 'missing_values',
+    label: 'Handle missing categorical values',
+    appliesTo: 'categorical',
+    methods: [
+      { key: 'categorical_unknown', label: 'Fill with "unknown"' },
+      { key: 'categorical_mode', label: 'Fill with mode (most frequent)' },
+    ],
+  },
+  {
+    taskKey: 'numeric_imputation',
+    configTask: 'missing_values',
+    label: 'Impute missing numeric values',
+    appliesTo: 'numeric',
+    methods: [
+      { key: 'numeric_median', label: 'Median' },
+      { key: 'numeric_mean', label: 'Mean' },
+      { key: 'numeric_constant', label: 'Constant value' },
+    ],
+  },
+  {
+    taskKey: 'clean_category_labels',
+    configTask: 'label_cleaning',
+    label: 'Clean & standardize categorical labels',
+    appliesTo: 'categorical',
+    methods: [{ key: 'standard', label: 'Standard cleaning' }],
+  },
+  {
+    taskKey: 'reduce_cardinality',
+    configTask: 'reduce_cardinality',
+    label: 'Reduce high-cardinality & rare categories',
+    appliesTo: 'categorical',
+    methods: [{ key: 'rare_to_other', label: 'Convert rare levels to "other"' }],
+  },
+  {
+    taskKey: 'encode_categoricals',
+    configTask: 'encoding',
+    label: 'Encode categorical variables',
+    appliesTo: 'categorical',
+    methods: [{ key: 'auto', label: 'Auto (one-hot ≤ max levels, else label + frequency)' }],
+  },
+  {
+    taskKey: 'numeric_scaling',
+    configTask: 'scaling',
+    label: 'Scale numeric features',
+    appliesTo: 'numeric',
+    methods: [
+      { key: 'zscore', label: 'Z-score standardization' },
+      { key: 'minmax', label: 'Min-max scaling' },
+      { key: 'none', label: 'No scaling' },
+    ],
+  },
 ];
 
+const TASK_CHIPS = TASK_REGISTRY.map((t) => ({ key: t.taskKey, label: t.label }));
+
 const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
+  const [columnTypes, setColumnTypes] = useState({});
+  const [preprocessingConfig, setPreprocessingConfig] = useState(null);
   const [step, setStep] = useState(0);
   const [columns, setColumns] = useState([]);
   const [selectedColumns, setSelectedColumns] = useState([]);
@@ -47,12 +99,17 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
     const setFromCsvString = (csvString) => {
       const parsed = Papa.parse(csvString, {
         header: true,
-        preview: 1,
+        preview: 200,
         skipEmptyLines: true,
       });
+
       const fields = parsed.meta?.fields || [];
       setColumns(fields);
       setSelectedColumns(fields);
+
+      const rows = parsed.data || [];
+      const types = inferColumnTypes(rows, fields);
+      setColumnTypes(types);
     };
 
     const detectColumns = async () => {
@@ -83,15 +140,11 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
   }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggleColumn = (col) => {
-    setSelectedColumns((prev) =>
-      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
-    );
+    setSelectedColumns((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
   };
 
   const handleToggleTask = (taskKey) => {
-    setSelectedTasks((prev) =>
-      prev.includes(taskKey) ? prev.filter((k) => k !== taskKey) : [...prev, taskKey]
-    );
+    setSelectedTasks((prev) => (prev.includes(taskKey) ? prev.filter((k) => k !== taskKey) : [...prev, taskKey]));
   };
 
   const handleNext = () => {
@@ -100,12 +153,10 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
       showToast('Please provide a name for this dataset.', 'warning');
       return;
     }
-
     if (selectedColumns.length === 0) {
       showToast('Please keep at least one column.', 'warning');
       return;
     }
-
     setStep(1);
   };
 
@@ -149,6 +200,9 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
         return newRow;
       });
 
+      const inferred = inferColumnTypes(filteredRows, selectedColumns);
+      setColumnTypes(inferred); // optional (for UI display)
+
       const finalCsvString = Papa.unparse({
         fields: selectedColumns,
         data: filteredRows,
@@ -160,6 +214,7 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
         file: csvFile,
         name: finalName,
         preprocessingTasks: selectedTasks,
+        preprocessingConfig,
       });
 
       showToast('Dataset uploaded successfully!', 'success');
@@ -175,67 +230,203 @@ const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
     }
   };
 
-  const title =
-    step === 0 ? 'Name your dataset & select columns' : 'Choose preprocessing tasks';
+  const title = step === 0 ? 'Upload dataset' : 'Preprocessing';
+
+  const stepLabel = step === 0 ? '1 of 2 · Columns' : '2 of 2 · Preprocessing';
 
   return (
     <AppModal open={open} title={title} onClose={onClose} maxWidth="md">
-      {step === 0 && (
-        <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
-          <InputFieldWithLabel
-            label="Dataset name"
-            placeholder="Enter a dataset name"
-            value={datasetName}
-            onChange={(e) => setDatasetName(e.target.value)}
-            helperText="You can change how this dataset will be identified in QualiMind."
-            name="datasetName"
-            id="datasetName"
-          />
+      <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
+        {/* Step header */}
+        <FlexBox
+          sx={{
+            gap: 1,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            border: '1px solid rgba(0,0,0,0.08)',
+            borderRadius: 2,
+            padding: 1.5,
+          }}
+        >
+          <FlexBox sx={{ flexDirection: 'column', gap: 0.25 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {step === 0 ? 'Name & columns' : 'Tasks & configuration'}
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              {stepLabel}
+            </Typography>
+          </FlexBox>
 
-          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-            We detected the following columns in your dataset. Uncheck any columns you want to
-            exclude before preprocessing.
-          </Typography>
-
-          <ColumnSelectionList
-            columns={columns}
-            selectedColumns={selectedColumns}
-            onToggleColumn={handleToggleColumn}
-          />
-
-          <FlexBox sx={{ justifyContent: 'flex-end', mt: 2, gap: 1 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleNext}
-              disabled={columns.length === 0}
+          {/* Simple progress indicator */}
+          <FlexBox sx={{ gap: 1, alignItems: 'center', minWidth: 180 }}>
+            <FlexBox
+              sx={{
+                height: 8,
+                borderRadius: 999,
+                background: 'rgba(0,0,0,0.08)',
+                overflow: 'hidden',
+                flex: 1,
+                minWidth: 140,
+              }}
             >
-              Next: Preprocessing
-            </Button>
+              <FlexBox
+                sx={{
+                  width: step === 0 ? '50%' : '100%',
+                  background: 'rgba(0,0,0,0.35)',
+                  height: '100%',
+                }}
+              />
+            </FlexBox>
+            <Typography variant="caption" color="textSecondary">
+              {step === 0 ? '50%' : '100%'}
+            </Typography>
           </FlexBox>
         </FlexBox>
-      )}
 
-      {step === 1 && (
-        <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
-          <Typography variant="subtitle1">Preprocessing tasks</Typography>
+        {/* Body */}
+        {step === 0 && (
+          <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
+            <FlexBox
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                gap: 2,
+                alignItems: 'start',
+              }}
+            >
+              <FlexBox sx={{ flexDirection: 'column', gap: 1.25 }}>
+                <InputFieldWithLabel
+                  label="Dataset name"
+                  placeholder="Enter a dataset name"
+                  value={datasetName}
+                  onChange={(e) => setDatasetName(e.target.value)}
+                  helperText="You can change how this dataset will be identified in QualiMind."
+                  name="datasetName"
+                  id="datasetName"
+                />
 
-          <PreprocessingTaskSelector
-            tasks={MOCK_TASKS}
-            selectedTaskKeys={selectedTasks}
-            onToggleTask={handleToggleTask}
-          />
+                <FlexBox
+                  sx={{
+                    border: '1px solid rgba(0,0,0,0.08)',
+                    borderRadius: 2,
+                    padding: 1.5,
+                    background: 'rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <Typography variant="body2" color="textSecondary">
+                    Review detected columns and deselect any you want to exclude before preprocessing.
+                  </Typography>
+                </FlexBox>
+              </FlexBox>
 
-          <FlexBox sx={{ justifyContent: 'space-between', mt: 3 }}>
-            <Button variant="outlined" color="inherit" onClick={handleBack} disabled={uploading}>
-              Back
-            </Button>
-            <Button variant="contained" color="primary" onClick={handleUpload} disabled={uploading}>
-              {uploading ? 'Uploading...' : 'Upload dataset'}
-            </Button>
+              <FlexBox
+                sx={{
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 2,
+                  padding: 1.5,
+                }}
+              >
+                <FlexBox sx={{ flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    Columns
+                  </Typography>
+                  <ColumnSelectionList
+                    columns={columns}
+                    selectedColumns={selectedColumns}
+                    onToggleColumn={handleToggleColumn}
+                  />
+                </FlexBox>
+              </FlexBox>
+            </FlexBox>
+
+            {/* Sticky action bar */}
+            <FlexBox
+              sx={{
+                position: { xs: 'sticky', md: 'static' },
+                bottom: 0,
+                borderTop: { xs: '1px solid rgba(0,0,0,0.08)', md: 'none' },
+                paddingTop: { xs: 1.5, md: 0 },
+                paddingBottom: { xs: 1, md: 0 },
+                zIndex: 2,
+              }}
+            >
+              <FlexBox sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, width: '100%' }}>
+                <Button variant="contained" color="primary" onClick={handleNext} disabled={columns.length === 0}>
+                  Next: Preprocessing
+                </Button>
+              </FlexBox>
+            </FlexBox>
           </FlexBox>
-        </FlexBox>
-      )}
+        )}
+
+        {step === 1 && (
+          <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
+            <FlexBox
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr' },
+                gap: 2,
+              }}
+            >
+              <FlexBox
+                sx={{
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 2,
+                  padding: 1.5,
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                  Preprocessing tasks
+                </Typography>
+
+                <PreprocessingTaskSelector
+                  tasks={TASK_CHIPS}
+                  selectedTaskKeys={selectedTasks}
+                  onToggleTask={handleToggleTask}
+                />
+              </FlexBox>
+
+              <FlexBox
+                sx={{
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 2,
+                  padding: 1.5,
+                }}
+              >
+                <PreprocessingConfigSelector
+                  selectedTaskKeys={selectedTasks}
+                  columns={selectedColumns}
+                  columnTypes={columnTypes}
+                  onConfigChange={setPreprocessingConfig}
+                />
+              </FlexBox>
+            </FlexBox>
+
+            {/* Sticky action bar */}
+            <FlexBox
+              sx={{
+                position: { xs: 'sticky', md: 'static' },
+                bottom: 0,
+                borderTop: { xs: '1px solid rgba(0,0,0,0.08)', md: 'none' },
+                paddingTop: { xs: 1.5, md: 0 },
+                paddingBottom: { xs: 1, md: 0 },
+                zIndex: 2,
+              }}
+            >
+              <FlexBox sx={{ justifyContent: 'space-between', gap: 1, width: '100%', flexWrap: 'wrap', display: 'flex',
+                justifyContent: 'space-between', }}>
+                <Button variant="outlined" color="inherit" onClick={handleBack} disabled={uploading}>
+                  Back
+                </Button>
+                <Button variant="contained" color="primary" onClick={handleUpload} disabled={uploading}>
+                  {uploading ? 'Uploading...' : 'Upload dataset'}
+                </Button>
+              </FlexBox>
+            </FlexBox>
+          </FlexBox>
+        )}
+      </FlexBox>
     </AppModal>
   );
 };
