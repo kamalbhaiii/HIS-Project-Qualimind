@@ -1,15 +1,15 @@
-import type { PreprocessingConfig } from '../validation/preprocessingConfig.schema';
+import type { PreprocessingConfig } from "../validation/preprocessingConfig.schema";
 
 export interface DatasetColumnProfile {
   name: string;
-  inferredType: 'categorical' | 'numeric' | 'unknown';
+  inferredType: "categorical" | "numeric" | "unknown";
   missingCount: number;
   uniqueCount: number;
   sampleValues: string[];
 }
 
 export interface DatasetContext {
-  datasetId: string;
+  // datasetId removed: microservice should not depend on persisted dataset identity
   filename?: string;
   sampleRowCount: number;
   columns: DatasetColumnProfile[];

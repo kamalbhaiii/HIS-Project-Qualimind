@@ -16,6 +16,8 @@ import { useToast } from '../../organisms/ToastProvider';
 import { excelToCsv, jsonFileToCsv } from '../../../lib/fileConverters';
 import { inferColumnTypes } from '../../../helpers/type_inference.helper';
 import AISuggestionConsoleModal from '../AISuggestionConsoleModal';
+import { suggestPreprocessing } from '../../../services/modules/preprocessingSuggest.api';
+
 
 // --- Your registry unchanged ---
 export const TASK_REGISTRY = [
@@ -128,6 +130,7 @@ function buildSuggestedDefaults({ columnTypes, selectedColumns }) {
 }
 
 const DatasetUploadWizard = ({ open, file, onClose, onUploaded }) => {
+  const [previewRows, setPreviewRows] = useState([]);
   const [aiConsoleOpen, setAiConsoleOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
@@ -195,6 +198,148 @@ const handleAiReject = () => {
     return base.filter((k) => registryKeys.has(k));
   }, [selectedColumns, columnTypes]);
 
+  function pickRandomSample(rows, n) {
+  const arr = Array.isArray(rows) ? rows.slice() : [];
+  if (arr.length <= n) return arr;
+
+  // Fisher–Yates shuffle partial
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr.slice(0, n);
+}
+
+function isMissing(v) {
+  if (v === null || v === undefined) return true;
+  if (typeof v === 'string' && v.trim() === '') return true;
+  return false;
+}
+
+function buildColumnProfiles({ columns, columnTypes, sampleRows }) {
+  const profiles = [];
+
+  for (const col of columns) {
+    const inferredType = columnTypes?.[col] || 'unknown';
+
+    let missingCount = 0;
+    const uniques = new Set();
+    const sampleValues = [];
+
+    for (const row of sampleRows) {
+      const v = row?.[col];
+
+      if (isMissing(v)) {
+        missingCount += 1;
+        continue;
+      }
+
+      const s = String(v);
+      uniques.add(s);
+
+      if (sampleValues.length < 8) {
+        sampleValues.push(s);
+      }
+    }
+
+    profiles.push({
+      name: col,
+      inferredType,
+      missingCount,
+      uniqueCount: uniques.size,
+      sampleValues,
+    });
+  }
+
+  return profiles;
+}
+
+// Convert LLM preprocessingConfig to the UI "defaults" model your selector expects
+function configToSeedDefaults(preprocessingConfig) {
+  const steps = preprocessingConfig?.steps || [];
+
+  const seed = {
+    categoricalMissing: 'categorical_unknown',
+    unknownLevel: 'unknown',
+    numericMissing: 'numeric_median',
+    numericConstant: 0,
+
+    encoding: 'auto',
+    oneHotMaxLevels: 10,
+
+    scaling: 'zscore',
+
+    rarePropThreshold: 0.01,
+    highCardinalityThreshold: 50,
+  };
+
+  for (const s of steps) {
+    const task = s?.task;
+    const method = s?.method;
+    const p = s?.params || {};
+
+    if (task === 'missing_values') {
+      const types = s?.appliesTo?.types || [];
+      if (types.includes('numeric')) {
+        // numeric_median | numeric_mean | numeric_constant
+        if (method === 'numeric_median' || method === 'numeric_mean' || method === 'numeric_constant') {
+          seed.numericMissing = method;
+        }
+        if (method === 'numeric_constant') {
+          const fv = p.fill_value;
+          const num = Number(fv);
+          seed.numericConstant = Number.isFinite(num) ? num : 0;
+        }
+      }
+      if (types.includes('categorical')) {
+        if (method === 'categorical_unknown' || method === 'categorical_mode') {
+          seed.categoricalMissing = method;
+        }
+        if (method === 'categorical_unknown') {
+          seed.unknownLevel = (p.fill_value && String(p.fill_value)) || 'unknown';
+        }
+      }
+    }
+
+    if (task === 'encoding') {
+      // Option-A: always auto
+      seed.encoding = 'auto';
+      const m = Number(p.one_hot_max_levels);
+      if (Number.isFinite(m) && m > 0) seed.oneHotMaxLevels = m;
+    }
+
+    if (task === 'reduce_cardinality') {
+      const r = Number(p.rare_prop_threshold);
+      const h = Number(p.high_cardinality_threshold);
+      if (Number.isFinite(r) && r > 0) seed.rarePropThreshold = r;
+      if (Number.isFinite(h) && h > 0) seed.highCardinalityThreshold = h;
+    }
+
+    if (task === 'scaling') {
+      if (method === 'zscore' || method === 'minmax' || method === 'none') {
+        seed.scaling = method;
+      }
+    }
+  }
+
+  return seed;
+}
+
+// Map preprocessingConfig -> which TASK_REGISTRY taskKey chips should be selected
+function configToTaskKeys(preprocessingConfig, TASK_REGISTRY) {
+  const steps = preprocessingConfig?.steps || [];
+  const presentTasks = new Set(steps.map((s) => s?.task).filter(Boolean));
+
+  const out = [];
+  for (const reg of TASK_REGISTRY) {
+    if (presentTasks.has(reg.configTask)) out.push(reg.taskKey);
+  }
+  return out;
+}
+
+
   useEffect(() => {
     if (!file) return;
 
@@ -224,6 +369,7 @@ const handleAiReject = () => {
       setSelectedColumns(fields);
 
       const rows = parsed.data || [];
+      setPreviewRows(rows);
       const types = inferColumnTypes(rows, fields);
       setColumnTypes(types);
     };
@@ -280,26 +426,54 @@ const handleAiReject = () => {
     if (step === 1) setStep(0);
   };
 
-  const handleSuggestConfig = async () => {
+const handleSuggestConfig = async () => {
   setAiConsoleOpen(true);
   setAiLoading(true);
+  setSuggesting(true);
   setAiError(null);
   setAiSuggestion(null);
 
   try {
-    // For now: deterministic suggestion (later: call backend endpoint)
-    const defaults = buildSuggestedDefaults({ columnTypes, selectedColumns });
+    // Use preview rows (already parsed) and selected columns
+    const rows = Array.isArray(previewRows) ? previewRows : [];
+    if (rows.length === 0) {
+      throw new Error('No sample rows available for suggestion. Please reselect the file.');
+    }
+
+    // Filter sample rows down to selected columns only
+    const filtered = rows.map((row) => {
+      const obj = {};
+      selectedColumns.forEach((c) => {
+        obj[c] = row?.[c];
+      });
+      return obj;
+    });
+
+    // Random sample up to 100 (bounded by preview size)
+    const sampleRowCount = Math.min(100, filtered.length);
+    const sampleRows = pickRandomSample(filtered, sampleRowCount);
+
+    const columnProfiles = buildColumnProfiles({
+      columns: selectedColumns,
+      columnTypes,
+      sampleRows,
+    });
+
+    const resp = await suggestPreprocessing({
+      filename: file?.name || 'dataset.csv',
+      columns: columnProfiles,
+      sampleRows,
+      sampleRowCount,
+    });
+
+    // Convert LLM config -> your UI model
+    const seed = configToSeedDefaults(resp.preprocessingConfig);
+    const taskKeys = configToTaskKeys(resp.preprocessingConfig, TASK_REGISTRY);
+
     const suggestion = {
-      preprocessingConfig: null, // optional – you can include later
-     rationale: [
-       'Clean categorical labels to standardize casing and whitespace.',
-       'Encode categoricals using one-hot for low-cardinality columns; otherwise use label/frequency encoding.',
-       'Scale numeric columns using min-max scaling to normalize ranges.',
-      ],
-      confidence: 0.75,
-      warnings: [],
-      _seedDefaults: defaults,
-      _recommendedTasks: recommendedTaskKeys,
+      ...resp,
+      _seedDefaults: seed,
+      _recommendedTasks: taskKeys,
     };
 
     setAiSuggestion(suggestion);
@@ -308,8 +482,10 @@ const handleAiReject = () => {
     setAiError(e?.message || 'Unknown error');
   } finally {
     setAiLoading(false);
+    setSuggesting(false);
   }
-  };
+};
+
 
   const handleUpload = async () => {
     if (!file) return;

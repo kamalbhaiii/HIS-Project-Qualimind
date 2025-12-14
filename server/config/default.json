@@ -38,5 +38,12 @@
   "multer": {
     "dest": "./raw/uploads",
     "save": "./raw/processed"
+  },
+  "openAI": {
+    "llmProvider":"openai",
+    "apiKey":"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",
+    "model":"gpt-4.1-mini",
+    "timeout":60000,
+    "maxTokens":900
   }
 }

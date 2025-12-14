@@ -5,10 +5,8 @@ export const uploadDataset = async ({ file, name, preprocessingTasks, preprocess
   formData.append('file', file);
   formData.append('name', name);
 
-  // Best practice for arrays in multipart: append each value
   (preprocessingTasks || []).forEach((t) => formData.append('preprocessingTasks', t));
 
-  // NEW: send full config as JSON string
   if (preprocessingConfig) {
     formData.append('preprocessingConfig', JSON.stringify(preprocessingConfig));
   }
