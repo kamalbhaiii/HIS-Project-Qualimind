@@ -82,13 +82,13 @@ export default function AISuggestionTerminal({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <TerminalShell height={320}>
-        <TypingText
-          text={terminalText}
-          speedMs={12}
-          startDelayMs={200}
-          onDone={() => setTypedDone(true)}
-          disabled={false}
-        />
+            <TypingText
+      text={terminalText}
+      speedMs={12}
+      startDelayMs={200}
+      onDone={() => setTypedDone(true)}
+      disabled={(terminalText?.length ?? 0) > 4000}
+    />
       </TerminalShell>
 
       {/* Footer controls inside “console” area */}
