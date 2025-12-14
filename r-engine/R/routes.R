@@ -61,7 +61,6 @@ clean_handler <- function(req, res, jobId) {
     NULL
   })
 
-
   # Normalize preprocessingTasks from body (if provided)
   preprocessing_tasks <- NULL
   if (!is.null(body) && !is.null(body$preprocessingTasks)) {
@@ -74,33 +73,57 @@ clean_handler <- function(req, res, jobId) {
     preprocessing_config <- body$preprocessingConfig
   }
 
+  # Prefer explicit filename from body (when inline data is provided)
+  if (!is.null(body) && !is.null(body$filename) && nzchar(body$filename)) {
+    filename <- body$filename
+  }
+
   df <- NULL
 
-  # 1) Try to read from CSV on disk
-  if (!is.na(file_path) && file_path != "") {
+  # -------------------------------------------------------------------
+  # 1) Prefer inline data if provided (this matches your Node client)
+  # -------------------------------------------------------------------
+  if (!is.null(body) && !is.null(body$data)) {
     df <- tryCatch({
-      readr::read_csv(file_path, show_col_types = FALSE)
+      if (is.data.frame(body$data)) {
+        body$data
+      } else if (is.list(body$data) && length(body$data) > 0) {
+
+        # body$data is expected to be a list of row objects (named lists):
+        # bind_rows makes each element a ROW (correct orientation)
+        out <- dplyr::bind_rows(body$data)
+
+        # Ensure plain atomic columns (avoid list-cols causing weird downstream behavior)
+        for (nm in names(out)) {
+          if (is.list(out[[nm]])) {
+            out[[nm]] <- vapply(out[[nm]], function(x) {
+              if (is.null(x) || length(x) == 0) return(NA_character_)
+              if (length(x) == 1) return(as.character(x))
+              paste(as.character(x), collapse = ",")
+            }, FUN.VALUE = character(1))
+          }
+        }
+
+        out
+      } else {
+        NULL
+      }
     }, error = function(e) {
       NULL
     })
   }
 
-  # 2) Fallback: try to read data from request body
-  if ((is.null(df) || nrow(df) == 0) && !is.null(body) && !is.null(body$data)) {
-    df <- if (is.data.frame(body$data)) {
-      body$data
-    } else if (is.list(body$data) && length(body$data) > 0) {
-      tryCatch({
-        jsonlite::fromJSON(jsonlite::toJSON(body$data), simplifyDataFrame = TRUE)
+
+  # -------------------------------------------------------------------
+  # 2) Fallback: read from CSV on disk
+  # -------------------------------------------------------------------
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
+    if (!is.na(file_path) && file_path != "") {
+      df <- tryCatch({
+        readr::read_csv(file_path, show_col_types = FALSE)
       }, error = function(e) {
         NULL
       })
-    } else {
-      NULL
-    }
-
-    if (!is.null(body$filename)) {
-      filename <- body$filename
     }
   }
 
@@ -147,7 +170,9 @@ clean_handler <- function(req, res, jobId) {
   metadata$datasetId <- jsonlite::unbox(job$datasetId[1])
 
   # Ensure mode is present (tasks vs config)
-  metadata$preprocessing_mode <- jsonlite::unbox(metadata$preprocessing_mode %||% if (!is.null(preprocessing_config)) "config" else "tasks")
+  metadata$preprocessing_mode <- jsonlite::unbox(
+    metadata$preprocessing_mode %||% if (!is.null(preprocessing_config)) "config" else "tasks"
+  )
 
   # Ensure requested_tasks in metadata even if tasks were not provided (tasks-mode)
   if (metadata$preprocessing_mode == "tasks") {
@@ -182,13 +207,17 @@ clean_handler <- function(req, res, jobId) {
     mark_completed = TRUE
   )
 
-  cleaned_data <- jsonlite::fromJSON(jsonlite::toJSON(processed_df, na = "string"))
+  # Serialize processed_df predictably as an array of row objects
+  cleaned_data <- jsonlite::fromJSON(
+    jsonlite::toJSON(processed_df, dataframe = "rows", na = "string", auto_unbox = TRUE),
+    simplifyVector = TRUE
+  )
 
   list(
     jobId        = jobId,
     status       = if (postgres_success) "cleaned" else "failed",
     rows         = nrow(processed_df),
-    originalRows = metadata$original_rows %||% metadata$original_rows,  # preserve older field name usage
+    originalRows = metadata$original_rows %||% metadata$originalRows,
     columns      = ncol(processed_df),
     storage      = list(
       redis    = ifelse(redis_success, "success", "failed"),
