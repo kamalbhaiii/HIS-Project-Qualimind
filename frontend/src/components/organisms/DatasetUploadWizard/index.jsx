@@ -572,7 +572,7 @@ const handleSuggestConfig = async () => {
 
   return (
     <AppModal open={open} title={title} onClose={onClose} maxWidth="md">
-      <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
+      <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {/* Step header */}
         <FlexBox
           sx={{

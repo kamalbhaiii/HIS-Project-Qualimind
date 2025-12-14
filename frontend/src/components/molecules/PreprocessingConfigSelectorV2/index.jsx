@@ -16,7 +16,6 @@ function SelectNative({ value, onChange, options, disabled, minWidth = 240 }) {
         padding: '10px 12px',
         borderRadius: 10,
         border: '1px solid rgba(0,0,0,0.15)',
-        background: disabled ? 'rgba(0,0,0,0.03)' : 'white',
         minWidth,
         width: '100%',
         maxWidth: 520,
@@ -53,7 +52,6 @@ function InputNative({
         padding: '10px 12px',
         borderRadius: 10,
         border: '1px solid rgba(0,0,0,0.15)',
-        background: disabled ? 'rgba(0,0,0,0.03)' : 'white',
         width: width ?? '100%',
         maxWidth: 520,
         outline: 'none',
@@ -380,12 +378,12 @@ export default function PreprocessingConfigSelectorV2({
   // Render
   // -----------------------------
   return (
-    <FlexBox sx={{ flexDirection: 'column', gap: 2 }}>
+    <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Section
         title="Preprocessing methods"
         subtitle="Choose defaults for the dataset. Optionally override methods per column."
         right={
-          <FlexBox sx={{ gap: 1, flexWrap: 'wrap' }}>
+          <FlexBox sx={{ display:'flex', flexDirection: 'column', gap: 1, flexWrap: 'wrap' }}>
             <Button
               variant="outlined"
               color="inherit"
@@ -616,7 +614,7 @@ export default function PreprocessingConfigSelectorV2({
 
       {/* Advanced overrides */}
       {advancedOpen && (
-        <FlexBox sx={{ flexDirection: 'column', gap: 1.5 }}>
+        <FlexBox sx={{ display:'flex',flexDirection: 'column', gap: 1.5 }}>
           <Section
             title="Advanced overrides"
             subtitle="Override methods for specific columns. Overrides only apply when the related task is enabled."
@@ -670,7 +668,7 @@ export default function PreprocessingConfigSelectorV2({
           </FlexBox>
 
           {/* Column cards */}
-          <FlexBox sx={{ flexDirection: 'column', gap: 1 }}>
+          <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {filteredColumns.map((col) => {
               const type = columnTypes[col];
               const ov = overrides[col];
@@ -691,10 +689,9 @@ export default function PreprocessingConfigSelectorV2({
                     gridTemplateColumns: { xs: '1fr', md: '260px 1fr' },
                     gap: 1.25,
                     alignItems: 'start',
-                    background: 'white',
                   }}
                 >
-                  <FlexBox sx={{ flexDirection: 'column', gap: 0.5 }}>
+                  <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                     <Typography variant="body1" sx={{ fontWeight: 700 }}>
                       {col}
                     </Typography>
@@ -714,9 +711,9 @@ export default function PreprocessingConfigSelectorV2({
                     )}
                   </FlexBox>
 
-                  <FlexBox sx={{ flexDirection: 'column', gap: 1 }}>
+                  <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {showCatMissing && (
-                      <FlexBox sx={{ gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <FlexBox sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Typography
                           variant="body2"
                           color="textSecondary"
@@ -753,7 +750,7 @@ export default function PreprocessingConfigSelectorV2({
                     )}
 
                     {showNumMissing && (
-                      <FlexBox sx={{ gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <FlexBox sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Typography
                           variant="body2"
                           color="textSecondary"
@@ -792,7 +789,7 @@ export default function PreprocessingConfigSelectorV2({
                     )}
 
                     {showScaling && (
-                      <FlexBox sx={{ gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <FlexBox sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Typography
                           variant="body2"
                           color="textSecondary"
