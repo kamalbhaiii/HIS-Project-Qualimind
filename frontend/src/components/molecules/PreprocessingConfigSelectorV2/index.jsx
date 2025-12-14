@@ -77,6 +77,7 @@ export default function PreprocessingConfigSelectorV2({
   columns,
   columnTypes,
   onConfigChange,
+  seedDefaults
 }) {
   const hasTask = (k) => selectedTaskKeys.includes(k);
 
@@ -138,6 +139,16 @@ export default function PreprocessingConfigSelectorV2({
   // Defaults (type-based)
   // -----------------------------
   const [defaults, setDefaults] = useState(() => PRESETS[0].apply());
+
+  // NEW: allow Wizard (AI Suggest) to seed defaults
+  useEffect(() => {
+    if (!seedDefaults) return;
+    setDefaults((prev) => ({
+      ...prev,
+      ...seedDefaults,
+    }));
+    // do not auto-clear overrides; user may already have overrides
+  }, [seedDefaults]);
 
   // -----------------------------
   // Overrides (per-column)
@@ -841,4 +852,5 @@ PreprocessingConfigSelectorV2.propTypes = {
   columns: PropTypes.arrayOf(PropTypes.string).isRequired,
   columnTypes: PropTypes.object.isRequired,
   onConfigChange: PropTypes.func.isRequired,
+  seedDefaults: PropTypes.object,
 };
