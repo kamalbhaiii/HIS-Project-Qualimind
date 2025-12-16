@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:migrate:dev && pnpm start:dev",
+    "prepare:dev": "cross-env NODE_ENV=development APP_ENV=development pnpm prisma:generate:dev && pnpm prisma:db:push:dev && pnpm start:dev",
     "prepare:testing": "cross-env NODE_ENV=testing APP_ENV=testing pnpm prisma:generate:testing && pnpm prisma:deploy:testing && pnpm start:testing",
     "prepare:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy pnpm prisma:generate:predeploy && pnpm prisma:deploy:predeploy && pnpm start:predeploy",
     "start:dev": "cross-env NODE_ENV=development APP_ENV=development nodemon --watch src --ext ts --exec \"node -r ts-node/register -r tsconfig-paths/register src/index.ts\"",
@@ -24,7 +24,8 @@
     "prisma:migrate:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate dev",
     "prisma:deploy:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js migrate dev",
     "prisma:deploy:testing": "cross-env NODE_ENV=testing APP_ENV=testing node scripts/run-prisma.js migrate deploy",
-    "prisma:deploy:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate deploy"
+    "prisma:deploy:predeploy": "cross-env NODE_ENV=predeploy APP_ENV=predeploy node scripts/run-prisma.js migrate deploy",
+    "prisma:db:push:dev": "cross-env NODE_ENV=development APP_ENV=development node scripts/run-prisma.js db push --skip-generate --accept-data-loss"
   },
   "keywords": [],
   "author": "",
