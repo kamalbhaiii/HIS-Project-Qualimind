@@ -11,6 +11,7 @@ source("R/preprocessing.R")
 source("R/jobs.R")
 source("R/routes.R")
 source("R/preprocessing_config.R")
+source("R/correlation.R")
 
 
 #* @apiTitle R Categorical Data Preprocessing API

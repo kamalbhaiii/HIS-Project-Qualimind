@@ -20,6 +20,7 @@ export async function uploadDatasetController(req: Request, res: Response, next:
       name?: string;
       preprocessingTasks?: string | string[];
       preprocessingConfig?: string; // multipart string
+      correlationConfig?: string;
     };
 
     const preprocessingTasks = normalizePreprocessingTasks(body.preprocessingTasks);
@@ -42,6 +43,7 @@ export async function uploadDatasetController(req: Request, res: Response, next:
         name: body.name,
         preprocessingTasks,
         preprocessingConfig,
+        correlationConfig: parseJsonField(body.correlationConfig),
       },
       file,
     });

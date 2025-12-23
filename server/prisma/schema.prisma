@@ -46,6 +46,7 @@ model ProcessingJob {
 
   preprocessingTasks   Json?      @db.JsonB
   preprocessingConfig  Json?      @db.JsonB
+  correlationConfig    Json?      @db.JsonB
 
   status               JobStatus  @default(PENDING)
   errorMessage         String?

@@ -58,6 +58,7 @@ export async function createDatasetWithJob(params: CreateDatasetParams): Promise
 
   const preprocessingTasks = body.preprocessingTasks ?? [];
   const preprocessingConfig = body.preprocessingConfig ?? null;
+  const correlationConfig = body.correlationConfig ?? null;
 
   const dataset = await prisma.dataset.create({
     data: {
@@ -71,7 +72,8 @@ export async function createDatasetWithJob(params: CreateDatasetParams): Promise
         create: {
           status: JobStatus.PENDING,
           preprocessingTasks,
-          preprocessingConfig, // NEW
+          preprocessingConfig,
+          correlationConfig,
         },
       },
     },
@@ -92,7 +94,8 @@ export async function createDatasetWithJob(params: CreateDatasetParams): Promise
     processingJobId: job.id,
     datasetId: dataset.id,
     preprocessingTasks,
-    preprocessingConfig, // NEW
+    preprocessingConfig,
+    correlationConfig
   });
 
   return toDatasetResponse(dataset);

@@ -78,6 +78,12 @@ clean_handler <- function(req, res, jobId) {
     filename <- body$filename
   }
 
+  correlation_config <- NULL
+  if (!is.null(body) && !is.null(body$correlationConfig)) {
+    correlation_config <- body$correlationConfig
+  }
+
+
   df <- NULL
 
   # -------------------------------------------------------------------
@@ -163,6 +169,24 @@ clean_handler <- function(req, res, jobId) {
 
   processed_df <- result$data
   metadata <- result$metadata
+
+  # Correlation (optional)
+  corr_out <- NULL
+  if (!is.null(correlation_config)) {
+    corr_out <- tryCatch({
+      compute_correlation_analysis(processed_df, correlation_config)
+    }, error = function(e) {
+      list(
+        enabled = jsonlite::unbox(TRUE),
+        error = jsonlite::unbox(e$message)
+      )
+    })
+  }
+
+  if (!is.null(corr_out)) {
+    metadata$correlation <- corr_out
+  }
+
 
   # Core identifiers
   metadata$filename  <- jsonlite::unbox(filename)
