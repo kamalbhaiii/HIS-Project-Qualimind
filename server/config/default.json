@@ -41,7 +41,7 @@
   },
   "openAI": {
     "llmProvider":"openai",
-    "apiKey":"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",
+    "apiKey":"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",
     "model":"gpt-4.1-mini",
     "timeout":60000,
     "maxTokens":900
