@@ -1,6 +1,6 @@
 {
-  "apiBaseUrl": "http://35.159.53.220:8000/api",
-  "serverUrl": "http://35.159.53.220:8000/",
+  "apiBaseUrl": "http://3.67.78.123:8000/api",
+  "serverUrl": "http://3.67.78.123:8000/",
   "featureFlags": {},
   "serverTimeout": 30000
 }
