@@ -1,82 +1,38 @@
-// src/components/templates/DatasetViewPageTemplate.jsx
 import React, { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import DashboardSectionHeader from "../../components/molecules/DashboardSectionHeader";
 import FlexBox from "../../components/atoms/FlexBox";
 import Typography from "../../components/atoms/CustomTypography";
 import DatasetViewToggle from "../../components/molecules/DatasetViewToggle";
+import DatasetViewSectionToggle from "../../components/molecules/DatasetViewSectionToggle";
 import DatasetViewPanel from "../../components/organisms/DatasetViewPanel";
 import DatasetMetaPanel from "../../components/organisms/DatasetMetaPanel";
+import DatasetVisualizationPanel from "../../components/organisms/DatasetVisualizationPanel";
 
-// --- helpers ---------------------------------------------------
+import { parseCsvPreview } from "../../lib/parseCsvPreview";
+import { normalizeMetadata } from "../../lib/datasetNormalization";
 
-const formatBytes = (bytes) => {
-  if (bytes === null || bytes === undefined) return "-";
-  if (Number.isNaN(bytes)) return "-";
-  if (bytes === 0) return "0 Bytes";
+// keep your existing formatBytes/formatDateTime as-is
 
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const value = bytes / Math.pow(1024, i);
-  return `${value.toFixed(1)} ${sizes[i]}`;
-};
-
-const formatDateTime = (iso) => {
-  if (!iso) return "-";
-  const date = new Date(iso);
-  return date.toLocaleString();
-};
-
-/**
- * Very simple CSV preview parser.
- * NOTE: If you need full RFC support (quoted commas, etc),
- * swap this out for PapaParse or a similar library.
- */
-const parseCsvPreview = (csvString, maxRows = 100) => {
-  if (!csvString) return { columns: [], rows: [] };
-
-  const lines = csvString.trim().split(/\r?\n/);
-  if (!lines.length) return { columns: [], rows: [] };
-
-  const columns = lines[0].split(",").map((c) => c.trim());
-  const rows = lines
-    .slice(1, 1 + maxRows)
-    .filter((l) => l.trim().length > 0)
-    .map((line) => {
-      const values = line.split(",");
-      const row = {};
-      columns.forEach((col, idx) => {
-        row[col] = values[idx] ?? "";
-      });
-      return row;
-    });
-
-  return { columns, rows };
-};
-
-const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
+const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
   const [mode, setMode] = useState("original"); // original | processed
+  const [section, setSection] = useState("preview"); // preview | visualize
   const [viewFormat, setViewFormat] = useState("table"); // table | csv | json
 
   const jobStatus = dataset?.job?.status || "PENDING";
+  const isProcessing = jobStatus === "PENDING" || jobStatus === "RUNNING";
+
+  const processingSummary = dataset?.processingSummary || {};
+  const metadataNormalized = useMemo(() => {
+    return normalizeMetadata(processingSummary?.metadata || {});
+  }, [processingSummary?.metadata]);
 
   const metaDataset = useMemo(() => {
     if (!dataset) return null;
 
-    const processingSummary = dataset.processingSummary || {};
-    const metadata = processingSummary.metadata || {};
+    const numericCount = metadataNormalized.numeric_columns.length;
+    const categoricalCount = metadataNormalized.categorical_columns.length;
 
-    const numericCols = Array.isArray(metadata.numeric_columns)
-      ? metadata.numeric_columns
-      : [];
-    const categoricalCols = Array.isArray(metadata.categorical_columns)
-      ? metadata.categorical_columns
-      : [];
-
-    const numericCount = numericCols.length;
-    const categoricalCount = categoricalCols.length;
-
-    // Ensure correct operator precedence and null safety:
     const totalColumns =
       typeof numericCount === "number" && typeof categoricalCount === "number"
         ? numericCount + categoricalCount
@@ -85,8 +41,10 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
     return {
       id: dataset.id,
       name: dataset.originalName || dataset.name,
-      size: formatBytes(dataset.sizeBytes),
-      uploadedAt: formatDateTime(dataset.createdAt),
+      size: (dataset.sizeBytes !== null && dataset.sizeBytes !== undefined)
+        ? dataset.sizeBytes
+        : null,
+      uploadedAt: dataset.createdAt,
       totalRows: processingSummary.processedRows ?? null,
       preprocessingTasks: dataset.job?.preprocessingTasks || [],
       categoricalColumns: categoricalCount,
@@ -94,14 +52,13 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
       totalColumns,
       lastJobStatus: dataset.job?.status || "PENDING",
       lastJobId: dataset.job?.id,
-      lastProcessedAt: dataset.job?.completedAt
-        ? formatDateTime(dataset.job.completedAt)
-        : null,
+      lastProcessedAt: dataset.job?.completedAt || null,
     };
-  }, [dataset]);
+  }, [dataset, metadataNormalized, processingSummary.processedRows]);
 
   const originalCsv = dataset?.rawData || "";
   const processedCsv = dataset?.processedData || "";
+  const hasProcessedData = !!processedCsv;
 
   const { columns: originalColumns, rows: originalRows } = useMemo(
     () => parseCsvPreview(originalCsv),
@@ -113,17 +70,13 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
     [processedCsv]
   );
 
-  const handleModeChange = (newMode) => {
-    setMode(newMode);
-    // Optional UX improvement: keep current viewFormat, or reset:
-    // setViewFormat("table");
-  };
+  const handleModeChange = (newMode) => setMode(newMode);
 
   return (
     <>
       <DashboardSectionHeader
         title="Dataset view"
-        subtitle="Inspect your original dataset and the preprocessed output."
+        subtitle="Inspect your original dataset, the preprocessed output, and analytical insights."
       />
 
       {loading && (
@@ -148,33 +101,22 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
         <>
           <FlexBox
             sx={{
-              // Responsive layout container
               display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                lg: "minmax(320px, 1.1fr) minmax(0, 2fr)",
-              },
+              gridTemplateColumns: { xs: "1fr", lg: "minmax(320px, 1.1fr) minmax(0, 2fr)" },
               gap: { xs: 2, sm: 2.5 },
               mb: 3,
-
-              // Prevent page-level overflow from children
               width: "100%",
               maxWidth: "100%",
               minWidth: 0,
               alignItems: "start",
             }}
           >
-            {/* Left column: metadata */}
-            <FlexBox
-              sx={{
-                minWidth: 0,
-                maxWidth: "100%",
-              }}
-            >
+            {/* Left: metadata */}
+            <FlexBox sx={{ minWidth: 0, maxWidth: "100%" }}>
               <DatasetMetaPanel dataset={metaDataset} />
             </FlexBox>
 
-            {/* Right column: toggle + view panel */}
+            {/* Right: toggles + content */}
             <FlexBox
               sx={{
                 display: "flex",
@@ -184,28 +126,48 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
                 maxWidth: "100%",
               }}
             >
-              <DatasetViewToggle mode={mode} onChange={handleModeChange} />
+              <FlexBox
+                sx={{
+                  display: "flex",
+                  gap: 1.5,
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "stretch", sm: "center" },
+                  justifyContent: "space-between",
+                }}
+              >
+                <DatasetViewToggle mode={mode} onChange={handleModeChange} />
+                <DatasetViewSectionToggle value={section} onChange={setSection} />
+              </FlexBox>
 
-              <DatasetViewPanel
-                mode={mode}
-                jobStatus={jobStatus}
-                jobErrorMessage={dataset?.job?.errorMessage || ""}
-                datasetName={dataset.originalName || dataset.name}
-                viewFormat={viewFormat}
-                onViewFormatChange={setViewFormat}
-                originalCsv={originalCsv}
-                originalColumns={originalColumns}
-                originalRows={originalRows}
-                processedCsv={processedCsv}
-                processedColumns={processedColumns}
-                processedRows={processedRows}
-              />
+              {section === "preview" ? (
+                <DatasetViewPanel
+                  mode={mode}
+                  jobStatus={jobStatus}
+                  jobErrorMessage={dataset?.job?.errorMessage || ""}
+                  datasetName={dataset.originalName || dataset.name}
+                  viewFormat={viewFormat}
+                  onViewFormatChange={setViewFormat}
+                  originalCsv={originalCsv}
+                  originalColumns={originalColumns}
+                  originalRows={originalRows}
+                  processedCsv={processedCsv}
+                  processedColumns={processedColumns}
+                  processedRows={processedRows}
+                />
+              ) : (
+                <DatasetVisualizationPanel
+                    loading={loading}
+                    jobRunning={jobStatus === "PENDING" || jobStatus === "RUNNING"}
+                    originalRows={originalRows}
+                    processedRows={processedRows}
+                    metadata={metadataNormalized}
+                />
+              )}
             </FlexBox>
           </FlexBox>
 
           <Typography variant="caption" color="textSecondary">
-            Note: For performance reasons, only the first few rows of each dataset
-            are displayed here.
+            Note: For performance reasons, only the first few rows of each dataset are displayed in previews.
           </Typography>
         </>
       )}
@@ -217,7 +179,6 @@ DatasetViewPageTemplate.propTypes = {
   dataset: PropTypes.object,
   loading: PropTypes.bool,
   error: PropTypes.string,
-  onNavigate: PropTypes.func,
 };
 
 export default DatasetViewPageTemplate;
