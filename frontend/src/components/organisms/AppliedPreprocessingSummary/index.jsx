@@ -97,42 +97,11 @@ export default function AppliedPreprocessingSummary({
 
         <FlexBox
           sx={{
-            display: 'grid',
             gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
             gap: 1.5,
             mt: 1,
           }}
         >
-          <FlexBox
-            sx={{
-              border: '1px solid rgba(0,0,0,0.08)',
-              borderRadius: 2,
-              padding: 1.25,
-              background: 'rgba(0,0,0,0.02)',
-              flexDirection: 'column',
-              gap: 0.5,
-            }}
-          >
-            <Typography variant="caption" sx={{ fontWeight: 700 }}>
-              Defaults
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              categoricalMissing: {formatValue(defaults.categoricalMissing)} (unknownLevel: {formatValue(defaults.unknownLevel)})
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              numericMissing: {formatValue(defaults.numericMissing)} (numericConstant: {formatValue(defaults.numericConstant)})
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              scaling: {formatValue(defaults.scaling)}
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              encoding.oneHotMaxLevels: {formatValue(defaults.oneHotMaxLevels)}
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              rarePropThreshold: {formatValue(defaults.rarePropThreshold)}; highCardinalityThreshold: {formatValue(defaults.highCardinalityThreshold)}
-            </Typography>
-          </FlexBox>
-
           <FlexBox
             sx={{
               border: '1px solid rgba(0,0,0,0.08)',

@@ -13,7 +13,6 @@ is_empty_correlation_config <- function(cfg) {
 normalize_correlation_config <- function(cfg) {
   if (is.null(cfg)) return(NULL)
 
-  # allow cfg to arrive as JSON string
   if (is.character(cfg) && nzchar(cfg)) {
     cfg <- jsonlite::fromJSON(cfg, simplifyVector = FALSE)
   }
@@ -57,11 +56,9 @@ compute_correlation_analysis <- function(df, cfg) {
   present <- requested[requested %in% colnames(df)]
   missing <- setdiff(requested, present)
 
-  # numeric-only
   numeric_present <- present[sapply(df[present], is.numeric)]
   non_numeric <- setdiff(present, numeric_present)
 
-  # need at least 2 numeric columns
   if (length(numeric_present) < 2) {
     return(list(
       enabled = jsonlite::unbox(TRUE),
@@ -76,7 +73,6 @@ compute_correlation_analysis <- function(df, cfg) {
 
   sub <- df[, numeric_present, drop = FALSE]
 
-  # drop constant columns (sd==0 or all NA)
   is_const <- sapply(sub, function(x) {
     x2 <- x[!is.na(x)]
     if (length(x2) == 0) return(TRUE)
@@ -100,10 +96,8 @@ compute_correlation_analysis <- function(df, cfg) {
 
   sub <- sub[, use_cols, drop = FALSE]
 
-  # compute correlation matrix
   cor_mat <- stats::cor(sub, use = "pairwise.complete.obs", method = cfg$method)
 
-  # extract top pairs from upper triangle
   p <- ncol(cor_mat)
   pairs <- list()
   idx <- 1
@@ -121,7 +115,6 @@ compute_correlation_analysis <- function(df, cfg) {
     }
   }
 
-  # sort by |r| desc
   if (length(pairs) > 0) {
     abs_r <- vapply(pairs, function(x) abs(as.numeric(x$r)), numeric(1))
     ord <- order(abs_r, decreasing = TRUE)
@@ -141,7 +134,6 @@ compute_correlation_analysis <- function(df, cfg) {
     top_pairs = pairs
   )
 
-  # optionally include matrix, size-limited
   if (isTRUE(cfg$includeMatrix) && length(use_cols) <= cfg$maxMatrixCols) {
     out$matrix <- cor_mat
   } else if (isTRUE(cfg$includeMatrix) && length(use_cols) > cfg$maxMatrixCols) {

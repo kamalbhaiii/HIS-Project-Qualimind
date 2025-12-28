@@ -1,8 +1,6 @@
 # R/routes.R
 # Plumber route handlers
 
-# /health -------------------------------------------------------------
-
 health_handler <- function(req, res) {
   redis_status    <- "disconnected"
   postgres_status <- "disconnected"
@@ -35,8 +33,6 @@ health_handler <- function(req, res) {
   )
 }
 
-# /clean --------------------------------------------------------------
-
 clean_handler <- function(req, res, jobId) {
   if (is.null(jobId) || jobId == "") {
     res$status <- 400
@@ -54,26 +50,20 @@ clean_handler <- function(req, res, jobId) {
 
   update_processing_job_status(jobId, status = "RUNNING", mark_started = TRUE)
 
-  # Parse body once for optional overrides (tasks, config, inline data, filename)
   body <- tryCatch({
     if (nzchar(req$postBody)) jsonlite::fromJSON(req$postBody, simplifyVector = FALSE) else NULL
-  }, error = function(e) {
-    NULL
-  })
+  }, error = function(e) NULL)
 
-  # Normalize preprocessingTasks from body (if provided)
   preprocessing_tasks <- NULL
   if (!is.null(body) && !is.null(body$preprocessingTasks)) {
     preprocessing_tasks <- normalize_tasks(body$preprocessingTasks)
   }
 
-  # Read preprocessingConfig from body (if provided)
   preprocessing_config <- NULL
   if (!is.null(body) && !is.null(body$preprocessingConfig)) {
     preprocessing_config <- body$preprocessingConfig
   }
 
-  # Prefer explicit filename from body (when inline data is provided)
   if (!is.null(body) && !is.null(body$filename) && nzchar(body$filename)) {
     filename <- body$filename
   }
@@ -83,23 +73,15 @@ clean_handler <- function(req, res, jobId) {
     correlation_config <- body$correlationConfig
   }
 
-
   df <- NULL
 
-  # -------------------------------------------------------------------
-  # 1) Prefer inline data if provided (this matches your Node client)
-  # -------------------------------------------------------------------
+  # Prefer inline data
   if (!is.null(body) && !is.null(body$data)) {
     df <- tryCatch({
       if (is.data.frame(body$data)) {
         body$data
       } else if (is.list(body$data) && length(body$data) > 0) {
-
-        # body$data is expected to be a list of row objects (named lists):
-        # bind_rows makes each element a ROW (correct orientation)
         out <- dplyr::bind_rows(body$data)
-
-        # Ensure plain atomic columns (avoid list-cols causing weird downstream behavior)
         for (nm in names(out)) {
           if (is.list(out[[nm]])) {
             out[[nm]] <- vapply(out[[nm]], function(x) {
@@ -109,27 +91,17 @@ clean_handler <- function(req, res, jobId) {
             }, FUN.VALUE = character(1))
           }
         }
-
         out
-      } else {
-        NULL
-      }
-    }, error = function(e) {
-      NULL
-    })
+      } else NULL
+    }, error = function(e) NULL)
   }
 
-
-  # -------------------------------------------------------------------
-  # 2) Fallback: read from CSV on disk
-  # -------------------------------------------------------------------
+  # Fallback: read from disk
   if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
     if (!is.na(file_path) && file_path != "") {
       df <- tryCatch({
         readr::read_csv(file_path, show_col_types = FALSE)
-      }, error = function(e) {
-        NULL
-      })
+      }, error = function(e) NULL)
     }
   }
 
@@ -145,6 +117,8 @@ clean_handler <- function(req, res, jobId) {
   }
 
   err_msg <- NULL
+
+  # STRICT: If preprocessingConfig is NULL and preprocessingTasks is NULL/empty => NO-OP
   result <- tryCatch({
     if (!is.null(preprocessing_config)) {
       preprocess_with_config(df, preprocessing_config)
@@ -176,33 +150,22 @@ clean_handler <- function(req, res, jobId) {
     corr_out <- tryCatch({
       compute_correlation_analysis(processed_df, correlation_config)
     }, error = function(e) {
-      list(
-        enabled = jsonlite::unbox(TRUE),
-        error = jsonlite::unbox(e$message)
-      )
+      list(enabled = jsonlite::unbox(TRUE), error = jsonlite::unbox(e$message))
     })
   }
+  if (!is.null(corr_out)) metadata$correlation <- corr_out
 
-  if (!is.null(corr_out)) {
-    metadata$correlation <- corr_out
-  }
-
-
-  # Core identifiers
   metadata$filename  <- jsonlite::unbox(filename)
   metadata$jobId     <- jsonlite::unbox(jobId)
   metadata$datasetId <- jsonlite::unbox(job$datasetId[1])
 
-  # Ensure mode is present (tasks vs config)
   metadata$preprocessing_mode <- jsonlite::unbox(
     metadata$preprocessing_mode %||% if (!is.null(preprocessing_config)) "config" else "tasks"
   )
 
-  # Ensure requested_tasks in metadata even if tasks were not provided (tasks-mode)
+  # STRICT: requested_tasks should never default to full pipeline
   if (metadata$preprocessing_mode == "tasks") {
-    if (is.null(metadata$requested_tasks)) {
-      metadata$requested_tasks <- normalize_tasks(preprocessing_tasks) %||% DEFAULT_PREPROCESSING_TASKS
-    }
+    metadata$requested_tasks <- normalize_tasks(preprocessing_tasks) %||% character(0)
   }
 
   result_key <- paste0("processed:", jobId)
@@ -212,11 +175,8 @@ clean_handler <- function(req, res, jobId) {
 
   store_error_message <- NULL
   if (!postgres_success) {
-    if (!redis_success) {
-      store_error_message <- "Processed successfully but failed to store results in both PostgreSQL and Redis"
-    } else {
-      store_error_message <- "Processed successfully but failed to store results in PostgreSQL; results stored only in Redis"
-    }
+    if (!redis_success) store_error_message <- "Processed successfully but failed to store results in both PostgreSQL and Redis"
+    else store_error_message <- "Processed successfully but failed to store results in PostgreSQL; results stored only in Redis"
   } else if (!redis_success) {
     store_error_message <- "Processed successfully and stored in PostgreSQL, but failed to store results in Redis"
   }
@@ -231,9 +191,9 @@ clean_handler <- function(req, res, jobId) {
     mark_completed = TRUE
   )
 
-  # Serialize processed_df predictably as an array of row objects
+  # STRICT: serialize NA as JSON null, not "NA"
   cleaned_data <- jsonlite::fromJSON(
-    jsonlite::toJSON(processed_df, dataframe = "rows", na = "string", auto_unbox = TRUE),
+    jsonlite::toJSON(processed_df, dataframe = "rows", na = "null", auto_unbox = TRUE),
     simplifyVector = TRUE
   )
 

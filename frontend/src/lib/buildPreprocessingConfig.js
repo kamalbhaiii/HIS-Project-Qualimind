@@ -1,15 +1,13 @@
 // components/utils/buildPreprocessingConfig.js
+// NEW BEHAVIOR (Round-2):
+// Build preprocessingConfig ONLY from explicit per-column overrides.
+// No type-level defaults. No implicit steps.
+// If overrides are empty => caller should treat as "no preprocessing".
 
-export function buildPreprocessingConfig({
-  selectedTaskKeys,
-  columns,
-  columnTypes,
-  defaults,
-  overrides,
-}) {
-  const hasTask = (k) => selectedTaskKeys.includes(k);
-
+export function buildPreprocessingConfig({ columns, columnTypes, overrides }) {
   const steps = [];
+  const cols = Array.isArray(columns) ? columns : [];
+  const ov = overrides || {};
 
   const pushColumnStep = (task, method, col, params) => {
     steps.push({
@@ -20,132 +18,68 @@ export function buildPreprocessingConfig({
     });
   };
 
-  const pushTypeStep = (task, method, type, params) => {
-    steps.push({
-      task,
-      method,
-      appliesTo: { types: [type] },
-      ...(params ? { params } : {}),
-    });
-  };
+  const isCat = (t) => String(t || "").toLowerCase() === "categorical";
+  const isNum = (t) => String(t || "").toLowerCase() === "numeric";
 
-  // ----------------------------
-  // 1) Missing values – categorical
-  // ----------------------------
-  if (hasTask('handle_missing_categoricals')) {
-    for (const col of columns) {
-      if (columnTypes[col] !== 'categorical') continue;
+  for (const col of cols) {
+    const type = columnTypes?.[col];
+    const c = ov?.[col];
+    if (!c || typeof c !== "object") continue;
 
-      const m = overrides?.[col]?.categoricalMissing;
+    // ---- missing_values ----
+    // schema:
+    // overrides[col].missing_values = {
+    //   categorical: { method: 'categorical_unknown'|'categorical_mode', unknownLevel? },
+    //   numeric: { method: 'numeric_median'|'numeric_mean'|'numeric_constant', value? }
+    // }
+    if (c.missing_values?.categorical && isCat(type)) {
+      const m = c.missing_values.categorical.method;
       if (m) {
         const params =
-          m === 'categorical_unknown'
-            ? { unknownLevel: overrides?.[col]?.unknownLevel ?? defaults.unknownLevel }
+          m === "categorical_unknown"
+            ? { unknownLevel: c.missing_values.categorical.unknownLevel ?? "unknown" }
             : undefined;
-        pushColumnStep('missing_values', m, col, params);
+        pushColumnStep("missing_values", m, col, params);
       }
     }
 
-    pushTypeStep(
-      'missing_values',
-      defaults.categoricalMissing,
-      'categorical',
-      defaults.categoricalMissing === 'categorical_unknown'
-        ? { unknownLevel: defaults.unknownLevel }
-        : undefined
-    );
-  }
-
-  // ----------------------------
-  // 2) Missing values – numeric
-  // ----------------------------
-  if (hasTask('numeric_imputation')) {
-    for (const col of columns) {
-      if (columnTypes[col] !== 'numeric') continue;
-
-      const m = overrides?.[col]?.numericMissing;
+    if (c.missing_values?.numeric && isNum(type)) {
+      const m = c.missing_values.numeric.method;
       if (m) {
-        const params =
-          m === 'numeric_constant'
-            ? { value: overrides?.[col]?.numericConstant ?? defaults.numericConstant }
-            : undefined;
-        pushColumnStep('missing_values', m, col, params);
+        const params = m === "numeric_constant" ? { value: Number(c.missing_values.numeric.value ?? 0) } : undefined;
+        pushColumnStep("missing_values", m, col, params);
       }
     }
 
-    pushTypeStep(
-      'missing_values',
-      defaults.numericMissing,
-      'numeric',
-      defaults.numericMissing === 'numeric_constant'
-        ? { value: defaults.numericConstant }
-        : undefined
-    );
-  }
+    // ---- label_cleaning ----
+    // overrides[col].label_cleaning = { method: 'standard' }
+    if (c.label_cleaning?.method && isCat(type)) {
+      pushColumnStep("label_cleaning", c.label_cleaning.method, col);
+    }
 
-  // ----------------------------
-  // 3) Label cleaning (type-level)
-  // ----------------------------
-  if (hasTask('clean_category_labels')) {
-    pushTypeStep('label_cleaning', 'standard', 'categorical');
-  }
-
-  // ----------------------------
-  // 4) Reduce cardinality (type-level default + optional per-column override)
-  // ----------------------------
-  if (hasTask('reduce_cardinality')) {
-    // per-column overrides (optional)
-    for (const col of columns) {
-      if (columnTypes[col] !== 'categorical') continue;
-
-      const ov = overrides?.[col]?.reduceCardinality;
-      if (!ov) continue;
-
-      pushColumnStep('reduce_cardinality', 'rare_to_other', col, {
-        rare_prop_threshold: Number(ov.rarePropThreshold ?? defaults.rarePropThreshold),
-        high_cardinality_threshold: Number(ov.highCardinalityThreshold ?? defaults.highCardinalityThreshold),
+    // ---- reduce_cardinality ----
+    // overrides[col].reduce_cardinality = { method:'rare_to_other', rare_prop_threshold, high_cardinality_threshold }
+    if (c.reduce_cardinality?.method && isCat(type)) {
+      pushColumnStep("reduce_cardinality", c.reduce_cardinality.method, col, {
+        rare_prop_threshold: Number(c.reduce_cardinality.rare_prop_threshold ?? 0.01),
+        high_cardinality_threshold: Number(c.reduce_cardinality.high_cardinality_threshold ?? 50),
       });
     }
 
-    pushTypeStep('reduce_cardinality', 'rare_to_other', 'categorical', {
-      rare_prop_threshold: Number(defaults.rarePropThreshold),
-      high_cardinality_threshold: Number(defaults.highCardinalityThreshold),
-    });
-  }
-
-  // ----------------------------
-  // 5) Encoding (type-level default + optional per-column override)
-  // ----------------------------
-  if (hasTask('encode_categoricals')) {
-    for (const col of columns) {
-      if (columnTypes[col] !== 'categorical') continue;
-
-      const ov = overrides?.[col]?.encoding;
-      if (!ov) continue;
-
-      pushColumnStep('encoding', 'auto', col, {
-        one_hot_max_levels: Number(ov.oneHotMaxLevels ?? defaults.oneHotMaxLevels) || 10,
+    // ---- encoding ----
+    // overrides[col].encoding = { method:'auto', one_hot_max_levels }
+    if (c.encoding?.method && isCat(type)) {
+      pushColumnStep("encoding", c.encoding.method, col, {
+        one_hot_max_levels: Number(c.encoding.one_hot_max_levels ?? 10),
       });
     }
 
-    pushTypeStep('encoding', 'auto', 'categorical', {
-      one_hot_max_levels: Number(defaults.oneHotMaxLevels) || 10,
-    });
-  }
-
-  // ----------------------------
-  // 6) Scaling (numeric)
-  // ----------------------------
-  if (hasTask('numeric_scaling')) {
-    for (const col of columns) {
-      if (columnTypes[col] !== 'numeric') continue;
-
-      const m = overrides?.[col]?.scaling;
-      if (m) pushColumnStep('scaling', m, col);
+    // ---- scaling ----
+    // overrides[col].scaling = { method:'zscore'|'minmax'|'none' }
+    if (c.scaling?.method && isNum(type)) {
+      pushColumnStep("scaling", c.scaling.method, col);
     }
-
-    pushTypeStep('scaling', defaults.scaling, 'numeric');
   }
 
-  return { version: '1.0', steps };
+  return { version: "1.0", steps };
 }

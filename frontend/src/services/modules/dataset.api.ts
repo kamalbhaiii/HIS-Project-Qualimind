@@ -1,6 +1,6 @@
 import api from "../apiClient";
 
-export const uploadDataset = async ({ file, name, preprocessingTasks, preprocessingConfig }) => {
+export const uploadDataset = async ({ file, name, preprocessingTasks, preprocessingConfig, correlationConfig }) => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('name', name);
@@ -10,6 +10,11 @@ export const uploadDataset = async ({ file, name, preprocessingTasks, preprocess
   if (preprocessingConfig) {
     formData.append('preprocessingConfig', JSON.stringify(preprocessingConfig));
   }
+
+  if (correlationConfig) {
+  formData.append("correlationConfig", JSON.stringify(correlationConfig));
+}
+
 
   const res = await api.post('/datasets', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
