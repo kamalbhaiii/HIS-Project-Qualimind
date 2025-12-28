@@ -12,12 +12,19 @@ import DatasetVisualizationPanel from "../../components/organisms/DatasetVisuali
 import { parseCsvPreview } from "../../lib/parseCsvPreview";
 import { normalizeMetadata } from "../../lib/datasetNormalization";
 
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Box from "@mui/material/Box";
+
 // keep your existing formatBytes/formatDateTime as-is
 
 const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
   const [mode, setMode] = useState("original"); // original | processed
   const [section, setSection] = useState("preview"); // preview | visualize
   const [viewFormat, setViewFormat] = useState("table"); // table | csv | json
+
+  // Optional AI inference toggle (default OFF)
+  const [aiInferenceEnabled, setAiInferenceEnabled] = useState(false);
 
   const jobStatus = dataset?.job?.status || "PENDING";
   const isProcessing = jobStatus === "PENDING" || jobStatus === "RUNNING";
@@ -46,7 +53,10 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
         : null,
       uploadedAt: dataset.createdAt,
       totalRows: processingSummary.processedRows ?? null,
+
+      // legacy tasks list (may be empty in config-mode)
       preprocessingTasks: dataset.job?.preprocessingTasks || [],
+
       categoricalColumns: categoricalCount,
       numericColumns: numericCount,
       totalColumns,
@@ -58,7 +68,6 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
 
   const originalCsv = dataset?.rawData || "";
   const processedCsv = dataset?.processedData || "";
-  const hasProcessedData = !!processedCsv;
 
   const { columns: originalColumns, rows: originalRows } = useMemo(
     () => parseCsvPreview(originalCsv),
@@ -71,6 +80,17 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
   );
 
   const handleModeChange = (newMode) => setMode(newMode);
+
+  // Resolve requested config source robustly:
+  // - job.preprocessingConfig is the most direct
+  // - metadata.requested_config often contains normalized forms (sometimes with column scalar bugs)
+  const requestedPreprocessingConfig =
+    dataset?.job?.preprocessingConfig ||
+    processingSummary?.metadata?.requested_config ||
+    dataset?.job?.preprocessingConfig ||
+    null;
+
+  const executedSteps = metadataNormalized?.executed_steps || [];
 
   return (
     <>
@@ -113,7 +133,11 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
           >
             {/* Left: metadata */}
             <FlexBox sx={{ minWidth: 0, maxWidth: "100%" }}>
-              <DatasetMetaPanel dataset={metaDataset} />
+              <DatasetMetaPanel
+                dataset={metaDataset}
+                requestedPreprocessingConfig={requestedPreprocessingConfig}
+                executedSteps={executedSteps}
+              />
             </FlexBox>
 
             {/* Right: toggles + content */}
@@ -136,7 +160,32 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
                 }}
               >
                 <DatasetViewToggle mode={mode} onChange={handleModeChange} />
-                <DatasetViewSectionToggle value={section} onChange={setSection} />
+                <FlexBox
+                  sx={{
+                    display: "flex",
+                    alignItems: { xs: "stretch", sm: "center" },
+                    justifyContent: "flex-end",
+                    gap: 1.5,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <DatasetViewSectionToggle value={section} onChange={setSection} />
+
+                  {/* Optional AI inference: show toggle only on Visualize to avoid clutter */}
+                  {section === "visualize" && (
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={aiInferenceEnabled}
+                            onChange={(e) => setAiInferenceEnabled(e.target.checked)}
+                          />
+                        }
+                        label="AI inference"
+                      />
+                    </Box>
+                  )}
+                </FlexBox>
               </FlexBox>
 
               {section === "preview" ? (
@@ -156,11 +205,12 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
                 />
               ) : (
                 <DatasetVisualizationPanel
-                    loading={loading}
-                    jobRunning={jobStatus === "PENDING" || jobStatus === "RUNNING"}
-                    originalRows={originalRows}
-                    processedRows={processedRows}
-                    metadata={metadataNormalized}
+                  loading={loading}
+                  jobRunning={isProcessing}
+                  originalRows={originalRows}
+                  processedRows={processedRows}
+                  metadata={metadataNormalized}
+                  aiInferenceEnabled={aiInferenceEnabled}
                 />
               )}
             </FlexBox>
