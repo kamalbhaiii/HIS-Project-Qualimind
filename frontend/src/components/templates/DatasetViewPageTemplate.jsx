@@ -211,6 +211,13 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
                   processedRows={processedRows}
                   metadata={metadataNormalized}
                   aiInferenceEnabled={aiInferenceEnabled}
+                  datasetId={dataset?.id}
+                  jobId={dataset?.job?.id}
+                  filename={dataset?.originalName || dataset?.name}
+                  rawData={dataset?.rawData || ""}
+                  processedData={dataset?.processedData || ""}
+                  processedRowsCount={processingSummary?.processedRows ?? null}
+                  processedColumnsCount={processingSummary?.processedColumns ?? null}
                 />
               )}
             </FlexBox>

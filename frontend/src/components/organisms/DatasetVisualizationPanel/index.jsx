@@ -1,4 +1,7 @@
-import React, { useMemo } from "react";
+// src/components/organisms/DatasetVisualizationPanel/index.jsx
+// (Use your actual path/file name; this is the fully updated component code.)
+
+import React, { useMemo, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import FlexBox from "../../atoms/FlexBox";
 import Typography from "../../atoms/CustomTypography";
@@ -22,6 +25,9 @@ import TableRow from "@mui/material/TableRow";
 import TableContainer from "@mui/material/TableContainer";
 import Box from "@mui/material/Box";
 
+// NEW: insights API call
+import { generateDatasetInsights } from "../../../services/modules/insights.api";
+
 function toActionCountSeries(columnActions) {
   if (!columnActions || typeof columnActions !== "object") return [];
   const out = [];
@@ -29,9 +35,33 @@ function toActionCountSeries(columnActions) {
     const arr = Array.isArray(actions) ? actions : actions ? [actions] : [];
     out.push({ label: col, value: arr.length });
   });
-  // sort descending
   out.sort((a, b) => (b.value || 0) - (a.value || 0));
   return out;
+}
+
+// --- Session storage helpers (per dataset/job) ---
+function makeInsightsStorageKey({ datasetId, jobId }) {
+  const d = datasetId || "na";
+  const j = jobId || "na";
+  return `ai_insights:v1:${d}:${j}`;
+}
+
+function safeSessionGet(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function safeSessionSet(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore quota / security errors
+  }
 }
 
 const DatasetVisualizationPanel = ({
@@ -41,9 +71,21 @@ const DatasetVisualizationPanel = ({
   processedRows,
   metadata,
   aiInferenceEnabled,
+
+  // NEW props for insights payload + cache identity
+  datasetId,
+  jobId,
+  filename,
+  rawData,
+  processedData,
+  processedRowsCount,
+  processedColumnsCount,
 }) => {
   const showLoading = loading || jobRunning;
 
+  // ----------------------------
+  // Existing analytics rendering
+  // ----------------------------
   const corr = metadata?.correlation || null;
   const corrColumns = Array.isArray(corr?.used_columns) ? corr.used_columns : [];
   const topPairs = Array.isArray(corr?.top_pairs) ? corr.top_pairs : [];
@@ -51,17 +93,13 @@ const DatasetVisualizationPanel = ({
   const scalingStats = metadata?.scaling_stats || {};
   const columnActions = metadata?.column_actions || {};
 
-  const numericCols = useMemo(
-    () => getNumericColumnsFromRows(processedRows),
-    [processedRows]
-  );
+  const numericCols = useMemo(() => getNumericColumnsFromRows(processedRows), [processedRows]);
 
   const categoricalColsOriginal = useMemo(
     () => getCategoricalColumnsFromRows(originalRows, 50),
     [originalRows]
   );
 
-  // pick first 2 numeric columns for scatter if correlation not provided
   const topPair = useMemo(() => {
     if (topPairs.length) return topPairs[0];
     if (numericCols.length >= 2) return { col1: numericCols[0], col2: numericCols[1], r: null };
@@ -73,10 +111,7 @@ const DatasetVisualizationPanel = ({
     return buildScatter(processedRows, topPair.col1, topPair.col2);
   }, [processedRows, topPair]);
 
-  const histTargets = useMemo(() => {
-    // show up to 2 numeric histograms
-    return numericCols.slice(0, 2);
-  }, [numericCols]);
+  const histTargets = useMemo(() => numericCols.slice(0, 2), [numericCols]);
 
   const histData = useMemo(() => {
     const out = {};
@@ -87,27 +122,123 @@ const DatasetVisualizationPanel = ({
   }, [processedRows, histTargets]);
 
   const categoryTarget = categoricalColsOriginal[0] || null;
+
   const catData = useMemo(() => {
     if (!categoryTarget) return [];
     return buildCategoryCounts(originalRows, categoryTarget, 12);
   }, [originalRows, categoryTarget]);
 
-  const actionCountSeries = useMemo(() => {
-    return toActionCountSeries(columnActions).slice(0, 12);
-  }, [columnActions]);
+  const actionCountSeries = useMemo(() => toActionCountSeries(columnActions).slice(0, 12), [
+    columnActions,
+  ]);
 
   const scalingRows = useMemo(() => {
     if (!scalingStats || typeof scalingStats !== "object") return [];
-    const rows = Object.entries(scalingStats).map(([col, v]) => {
+    return Object.entries(scalingStats).map(([col, v]) => {
       const mean = typeof v?.mean === "number" ? v.mean : null;
       const sd = typeof v?.sd === "number" ? v.sd : null;
       const method = v?.method ? String(v.method) : "—";
       return { col, mean, sd, method };
     });
-    return rows;
   }, [scalingStats]);
 
   const previewNote = "Charts are computed from preview rows only.";
+
+  // ----------------------------
+  // NEW: AI Insights state + cache (sessionStorage + in-memory)
+  // ----------------------------
+  const [insights, setInsights] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState(null);
+
+  // in-memory cache to prevent repeat fetches during the same page lifetime
+  const insightsCacheRef = useRef(new Map());
+
+  // Compute a stable storage key for this dataset/job
+  const storageKey = useMemo(() => {
+    return makeInsightsStorageKey({ datasetId, jobId });
+  }, [datasetId, jobId]);
+
+  useEffect(() => {
+    // Rule: Only call (or load cache) if enabled
+    if (!aiInferenceEnabled) return;
+
+    // If job still running or page loading, do nothing
+    if (loading || jobRunning) return;
+
+    // 1) Check in-memory cache first
+    const memCached = insightsCacheRef.current.get(storageKey);
+    if (memCached) {
+      setInsights(memCached);
+      setInsightsError(null);
+      return;
+    }
+
+    // 2) Check sessionStorage next
+    const sessionCached = safeSessionGet(storageKey);
+    if (sessionCached) {
+      insightsCacheRef.current.set(storageKey, sessionCached);
+      setInsights(sessionCached);
+      setInsightsError(null);
+      return;
+    }
+
+    // 3) Otherwise call API
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+
+    (async () => {
+      try {
+        setInsightsLoading(true);
+        setInsightsError(null);
+
+        const payload = {
+          filename: filename || "",
+          rawData: rawData || "",
+          processedData: processedData || "",
+          processedRows: typeof processedRowsCount === "number" ? processedRowsCount : undefined,
+          processedColumns: typeof processedColumnsCount === "number" ? processedColumnsCount : undefined,
+          metadata: metadata || {},
+        };
+
+        const res = await generateDatasetInsights(
+          payload,
+        );
+
+        // Save caches
+        insightsCacheRef.current.set(storageKey, res);
+        safeSessionSet(storageKey, res);
+
+        setInsights(res);
+      } catch (err) {
+        if (err?.name === "AbortError") return;
+
+        const msg =
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to generate AI insights";
+
+        setInsightsError(msg);
+        setInsights(null);
+      } finally {
+        setInsightsLoading(false);
+      }
+    })();
+
+    return () => {
+      if (controller) controller.abort();
+    };
+  }, [
+    aiInferenceEnabled,
+    loading,
+    jobRunning,
+    storageKey,
+    filename,
+    rawData,
+    processedData,
+    processedRowsCount,
+    processedColumnsCount,
+    metadata,
+  ]);
 
   return (
     <FlexBox
@@ -119,7 +250,129 @@ const DatasetVisualizationPanel = ({
         minWidth: 0,
       }}
     >
-      {/* NEW: Actions per column */}
+            {/* AI inference (only when enabled) */}
+      {aiInferenceEnabled && (
+        <ChartCard
+          title="AI inference"
+          subtitle="Automated interpretation of what can be concluded from the processed dataset."
+          loading={showLoading}
+          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
+        >
+          <Box
+            sx={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 2,
+              p: 2,
+              background: "rgba(0,0,0,0.02)",
+            }}
+          >
+            {insightsLoading ? (
+              <Typography variant="body2" color="textSecondary">
+                Generating insights...
+              </Typography>
+            ) : insightsError ? (
+              <>
+                <Typography variant="body2" sx={{ fontWeight: 700 }} color="error">
+                  Failed to generate insights
+                </Typography>
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 0.75 }}>
+                  {insightsError}
+                </Typography>
+              </>
+            ) : !insights ? (
+              <Typography variant="body2" color="textSecondary">
+                No insights available.
+              </Typography>
+            ) : (
+              <>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Executive summary
+                </Typography>
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 0.75, mb: 1.5 }}>
+                  {insights.executiveSummary || "—"}
+                </Typography>
+
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Key findings
+                </Typography>
+                <ul style={{ marginTop: 8, marginBottom: 16 }}>
+                  {(insights.keyFindings || []).slice(0, 8).map((x, i) => (
+                    <li key={`kf-${i}`}>
+                      <Typography variant="body2" color="textSecondary">
+                        {x}
+                      </Typography>
+                    </li>
+                  ))}
+                </ul>
+
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Data quality observations
+                </Typography>
+                <ul style={{ marginTop: 8, marginBottom: 16 }}>
+                  {(insights.dataQualityObservations || []).slice(0, 8).map((x, i) => (
+                    <li key={`dq-${i}`}>
+                      <Typography variant="body2" color="textSecondary">
+                        {x}
+                      </Typography>
+                    </li>
+                  ))}
+                </ul>
+
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Correlation insights
+                </Typography>
+                <ul style={{ marginTop: 8, marginBottom: 16 }}>
+                  {(insights.correlationInsights || []).slice(0, 8).map((x, i) => (
+                    <li key={`ci-${i}`}>
+                      <Typography variant="body2" color="textSecondary">
+                        {x}
+                      </Typography>
+                    </li>
+                  ))}
+                </ul>
+
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Recommended next steps
+                </Typography>
+                <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                  {(insights.recommendedNextSteps || []).slice(0, 8).map((x, i) => (
+                    <li key={`ns-${i}`}>
+                      <Typography variant="body2" color="textSecondary">
+                        {x}
+                      </Typography>
+                    </li>
+                  ))}
+                </ul>
+
+                <Typography variant="caption" color="textSecondary" sx={{ display: "block", mt: 1.5 }}>
+                  Confidence:{" "}
+                  {typeof insights.confidence === "number"
+                    ? `${Math.round(insights.confidence * 100)}%`
+                    : "—"}
+                </Typography>
+
+                {!!(insights.warnings || []).length && (
+                  <>
+                    <Typography variant="body2" sx={{ fontWeight: 700, mt: 1.5 }}>
+                      Warnings
+                    </Typography>
+                    <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                      {(insights.warnings || []).slice(0, 6).map((x, i) => (
+                        <li key={`w-${i}`}>
+                          <Typography variant="body2" color="textSecondary">
+                            {x}
+                          </Typography>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </>
+            )}
+          </Box>
+        </ChartCard>
+      )}
+      {/* Actions per column */}
       <ChartCard
         title="Preprocessing impact"
         subtitle="How many transformations/actions were applied per column (from metadata)."
@@ -157,7 +410,7 @@ const DatasetVisualizationPanel = ({
         )}
       </ChartCard>
 
-      {/* NEW: Top correlation pairs */}
+      {/* Top correlation pairs */}
       <ChartCard
         title="Top correlation pairs"
         subtitle="Strongest relationships ranked by absolute correlation."
@@ -206,12 +459,14 @@ const DatasetVisualizationPanel = ({
         )}
       </ChartCard>
 
-      {/* Scatter plot for top correlated pair */}
+      {/* Scatter plot */}
       <ChartCard
         title="Correlation scatter plot"
         subtitle={
           topPair
-            ? `${topPair.col1} vs ${topPair.col2}${typeof topPair.r === "number" ? ` (r=${topPair.r.toFixed(3)})` : ""}`
+            ? `${topPair.col1} vs ${topPair.col2}${
+                typeof topPair.r === "number" ? ` (r=${topPair.r.toFixed(3)})` : ""
+              }`
             : "No pair available"
         }
         loading={showLoading}
@@ -230,7 +485,7 @@ const DatasetVisualizationPanel = ({
         )}
       </ChartCard>
 
-      {/* Categorical distribution (from original rows) */}
+      {/* Categorical distribution */}
       <ChartCard
         title="Categorical distribution"
         subtitle={categoryTarget ? `Top categories for "${categoryTarget}"` : "No categorical column found"}
@@ -265,7 +520,7 @@ const DatasetVisualizationPanel = ({
         </ChartCard>
       ))}
 
-      {/* NEW: Scaling stats summary */}
+      {/* Scaling stats */}
       <ChartCard
         title="Scaling statistics"
         subtitle="Mean and standard deviation used for scaling (from metadata)."
@@ -312,34 +567,6 @@ const DatasetVisualizationPanel = ({
           </TableContainer>
         )}
       </ChartCard>
-
-      {/* OPTIONAL: AI inference placeholder (only if enabled) */}
-      {aiInferenceEnabled && (
-        <ChartCard
-          title="AI inference"
-          subtitle="Automated interpretation of what can be concluded from the processed dataset."
-          loading={showLoading}
-          footer="Optional section. This does not run unless enabled."
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          <Box
-            sx={{
-              border: "1px solid rgba(0,0,0,0.08)",
-              borderRadius: 2,
-              p: 2,
-              background: "rgba(0,0,0,0.02)",
-            }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              This feature is still under process
-            </Typography>
-            <Typography variant="body2" color="textSecondary" sx={{ mt: 0.75 }}>
-              In a future update, this section will summarize notable patterns in the processed data
-              (e.g., strongest correlations, outliers, scaling/encoding impacts, and potential modeling considerations).
-            </Typography>
-          </Box>
-        </ChartCard>
-      )}
     </FlexBox>
   );
 };
@@ -351,6 +578,14 @@ DatasetVisualizationPanel.propTypes = {
   processedRows: PropTypes.arrayOf(PropTypes.object),
   metadata: PropTypes.object,
   aiInferenceEnabled: PropTypes.bool,
+
+  datasetId: PropTypes.string,
+  jobId: PropTypes.string,
+  filename: PropTypes.string,
+  rawData: PropTypes.string,
+  processedData: PropTypes.string,
+  processedRowsCount: PropTypes.number,
+  processedColumnsCount: PropTypes.number,
 };
 
 DatasetVisualizationPanel.defaultProps = {
@@ -360,6 +595,14 @@ DatasetVisualizationPanel.defaultProps = {
   processedRows: [],
   metadata: null,
   aiInferenceEnabled: false,
+
+  datasetId: null,
+  jobId: null,
+  filename: "",
+  rawData: "",
+  processedData: "",
+  processedRowsCount: null,
+  processedColumnsCount: null,
 };
 
 export default DatasetVisualizationPanel;
