@@ -9,7 +9,7 @@
     "max": 100
   },
   "frontend":{
-    "url": "http://localhost:3000"
+    "url": "http://18.195.219.18:3000"
   },
   "nodemailer":{
     "name_from":"Qualimind"
@@ -30,6 +30,6 @@
    "googleAuth": {
     "clientId": "356828934230-1eg49caaspcqof3olvapop4n1hgcaktq.apps.googleusercontent.com",
     "clientSecret": "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",
-    "redirectUri": "http://3.67.78.123:8000/api/auth/google/callback"
+    "redirectUri": "http://18.195.219.18:8000/api/auth/google/callback"
   }
 }
