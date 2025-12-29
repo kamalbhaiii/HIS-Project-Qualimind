@@ -30,6 +30,6 @@
    "googleAuth": {
     "clientId": "356828934230-1eg49caaspcqof3olvapop4n1hgcaktq.apps.googleusercontent.com",
     "clientSecret": "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",
-    "redirectUri": "http://18.195.219.18:8000/api/auth/google/callback"
+    "redirectUri": "https://qualimind.kamalbhaiii.de/api/auth/google/callback"
   }
 }
