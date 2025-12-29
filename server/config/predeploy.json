@@ -9,7 +9,7 @@
     "max": 100
   },
   "frontend":{
-    "url": "http://18.195.219.18:3000"
+    "url": "https://qualimind.kamalbhaiii.de"
   },
   "nodemailer":{
     "name_from":"Qualimind"
