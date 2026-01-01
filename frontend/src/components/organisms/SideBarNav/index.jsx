@@ -27,6 +27,9 @@ import {
   AnimatedChevronRight,
   AnimatedLogout,
 } from "../../atoms/AnimatedIcons";
+import LogoMark from "../../atoms/LogoMark";
+import PageLogo from "../../molecules/PageLogo";
+import Logo from "../../atoms/Logo";
 
 export const SIDEBAR_WIDTH = 240;
 export const SIDEBAR_COLLAPSED_WIDTH = 72;
@@ -67,22 +70,9 @@ const SidebarNav = ({ items, collapsed, onToggleCollapse, headerContentExpanded 
         }}
       >
         {collapsed ? (
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 2,
-              display: "grid",
-              placeItems: "center",
-              border: (t) => `1px solid ${t.palette.divider}`,
-              bgcolor: "background.paper",
-              userSelect: "none",
-            }}
-          >
-            <Typography sx={{ fontWeight: 800, lineHeight: 1 }}>Q</Typography>
-          </Box>
+          <LogoMark />
         ) : (
-          <Box sx={{ flex: 1, minWidth: 0 }}>{headerContentExpanded}</Box>
+          <Logo />
         )}
 
         <IconButton

@@ -74,7 +74,7 @@ export default function LandingHero() {
         {/* Left: message */}
         <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <Logo />
+            <Logo size="lg" />
             <FlexBox sx={{ flexDirection: "column", minWidth: 0 }}>
               <Typography variant="body2" color="textSecondary">
                 Deterministic preprocessing & analysis for structured datasets

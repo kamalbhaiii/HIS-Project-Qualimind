@@ -16,6 +16,7 @@ import { saveAuth } from '../../lib/authStorage';
 import { useToast } from '../organisms/ToastProvider';
 import { faMessage, faUser, faLock } from '@fortawesome/free-solid-svg-icons';
 import logoImage from '../../assets/logo.png';
+import PageLogo from '../molecules/PageLogo';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -155,28 +156,8 @@ const SignUpPageTemplate = ({
   return (
     <AuthPageShell ariaLabel="Sign up to QualiMind">
       {/* Header */}
-      <FlexBox sx={{ textAlign: 'center', mb: 3 }}>
-        <FlexBox
-          sx={{
-            width: 64,
-            height: 64,
-            mx: 'auto',
-            mb: 2,
-            bgcolor: 'background.paper',
-            borderRadius: '50%',
-            boxShadow: 3,
-            alignItems: 'center',
-            justifyContent: 'center',
-            display: 'flex',
-          }}
-        >
-          <img
-            src={logoImage}
-            alt="QualiMind Logo"
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-          />
-        </FlexBox>
-
+      <FlexBox sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', mb: 3 }}>
+        <PageLogo />
         <Typography variant="h5" fontWeight={700}>
           Create your QualiMind account
         </Typography>
@@ -199,7 +180,7 @@ const SignUpPageTemplate = ({
       </Typography>
 
       {/* Form */}
-      <FlexBox component="form" onSubmit={handleSubmit} noValidate>
+      <FlexBox sx={{display: 'flex', flexDirection: 'column'}} component="form" onSubmit={handleSubmit} noValidate>
         
         {/* Name */}
         <InputFieldWithLabel
@@ -304,7 +285,6 @@ const SignUpPageTemplate = ({
             e.preventDefault();
             onSignInRedirect();
           }}
-          sx={{ ml: 1 }}
         >
           Sign in
         </LinkText>
