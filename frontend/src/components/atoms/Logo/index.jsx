@@ -1,26 +1,17 @@
 import React from 'react';
-import PropTypes from 'prop-types';
-import Box from '@mui/material/Box';
+import FlexBox from '../FlexBox';
+import Typography from '../CustomTypography';
+import LogoMark from '../LogoMark';
 
-const Logo = ({ src, size = 32, alt = 'Logo' }) => {
+const Logo = () => {
   return (
-    <Box
-      component="img"
-      src={src}
-      alt={alt}
-      sx={{
-        width: size,
-        height: size,
-        objectFit: 'contain',
-      }}
-    />
+            <FlexBox sx={{ display: "flex", gap: 2 , alignItems: "center", minWidth: 0 }}>
+              <LogoMark />
+             <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                QualiMind
+              </Typography>
+            </FlexBox>
   );
-};
-
-Logo.propTypes = {
-  src: PropTypes.string.isRequired,
-  size: PropTypes.number,
-  alt: PropTypes.string,
 };
 
 export default Logo;
