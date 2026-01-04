@@ -1,6 +1,8 @@
-# QualiMind
+# QualiMind Comprehensive Documentation (Scientific and IT Perspective)
 
 This document provides a detailed, scientific, and IT-centric documentation of the QualiMind system. It covers data analytics, software engineering, DevOps, and data-science perspectives with a strong emphasis on the R-Plumber preprocessing pipeline. It is intended to be a single source of truth for stakeholders who need deep technical and operational clarity.
+
+---
 
 ## 1. Purpose and Scope
 
@@ -15,7 +17,7 @@ This document provides a detailed, scientific, and IT-centric documentation of t
 
 ---
 
-## 2. System Overview
+## 2. System Overview (Data and Engineering Perspective)
 
 QualiMind is a full-stack system that transforms qualitative or mixed-type datasets into ML-ready representations. It is composed of:
 
@@ -31,6 +33,8 @@ Key goals:
 - Traceable preprocessing actions via metadata.
 - Real-time job updates and reproducible outputs.
 
+![System Architecture Overview](assets/System%20Architecture%20Overview.png)
+
 ---
 
 ## 3. Directory Guide (Exhaustive View)
@@ -40,6 +44,7 @@ Key goals:
 | `r-engine/` | R-Plumber service, preprocessing, correlation logic | Data preprocessing core |
 | `server/` | Backend API, jobs, queue, storage, schemas | Orchestration and control plane |
 | `frontend/` | UI and preprocessing config builder | User-facing configuration |
+| `datasets/` | Sample datasets | Testing inputs |
 | `infra/` | Terraform and deployment files | Infrastructure provisioning |
 | `docker-compose.*.yml` | Multi-environment orchestration | DevOps runtime |
 
@@ -65,8 +70,7 @@ Key goals:
 - Cleaned data and metadata stored in Redis and Postgres.
 - Results are also converted to CSV and saved locally when requested.
 
-[IMAGE_PLACEHOLDER: Data Flow Diagram]
-[IMAGE_PROMPT: "Create a data flow diagram for QualiMind showing file upload, backend API, queue, worker, R engine, Redis, PostgreSQL, and API response to frontend. Use a clean data engineering style with arrows for flow."]
+![Data Flow Diagram](assets/Data%20Flow%20Diagram.png)
 
 ---
 
@@ -154,6 +158,8 @@ Implementation references:
 ---
 
 ## 7. Preprocessing Operations (Detailed)
+
+![Data Preprocessing Pipeline](assets/Data%20Preprocessing%20Pipeline.png)
 
 ### 7.1 Preflight steps (config mode)
 
@@ -249,6 +255,8 @@ Key metadata fields:
 - Worker: `server/src/workers/preprocess.worker.ts`
 - Job status updates persisted and broadcast in real time.
 
+![Job Lifecycle and State Machine](assets/Job%20Lifecycle%20and%20State%20Machine.png)
+
 ### 10.3 Result handling
 
 - `result-store.ts` persists processed data to Redis and file system.
@@ -286,8 +294,7 @@ Implementation references:
 - `r-engine/R/storage.R`
 - `server/src/core/result-store.ts`
 
-[IMAGE_PLACEHOLDER: Database ERD]
-[IMAGE_PROMPT: "Create an ERD for QualiMind with User, Dataset, ProcessingJob, and dataset_processing_summary. Show one-to-many relationships and key columns. Clean technical style."]
+![Database Schema (Core)](assets/Database%20Schema%20(Core).png)
 
 ---
 
@@ -341,8 +348,7 @@ Implementation references:
 - `infra/main.tf`
 - `infra/variables.tf`
 
-[IMAGE_PLACEHOLDER: Deployment Topology]
-[IMAGE_PROMPT: "Create a deployment topology diagram for QualiMind with Docker Compose services and AWS EC2 host. Show networking boundaries, ports, and service dependencies. Professional DevOps style."]
+![Deployment Topology](assets/Deployment%20Topology.png)
 
 ---
 
@@ -620,17 +626,7 @@ Test Case D: Correlation analysis\n
 
 ---
 
-## 24. Additional Placeholders
-
-[IMAGE_PLACEHOLDER: UI Screenshot - Upload and Config]
-[IMAGE_PROMPT: "Create a clean UI mockup of a dataset upload and preprocessing config panel with tables and toggle controls. Professional enterprise style."]
-
-[IMAGE_PLACEHOLDER: UI Screenshot - Job Monitoring]
-[IMAGE_PROMPT: "Create a UI mockup of a job monitoring dashboard with status indicators, progress, and result summaries. Professional enterprise style."]
-
----
-
-## 25. Key Source References
+## 24. Key Source References
 
 - R preprocessing logic: `r-engine/R/preprocessing.R`
 - Config-based preprocessing: `r-engine/R/preprocessing_config.R`
