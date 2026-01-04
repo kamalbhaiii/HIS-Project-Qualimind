@@ -1,125 +1,130 @@
-# QualiMind Data Analyst Documentation
+# QualiMind
 
-This document provides a data analyst focused view of the QualiMind system, with emphasis on the R-Plumber preprocessing pipeline, the data flow, and how preprocessing decisions affect outputs and metadata.
+This document provides a detailed, scientific, and IT-centric documentation of the QualiMind system. It covers data analytics, software engineering, DevOps, and data-science perspectives with a strong emphasis on the R-Plumber preprocessing pipeline. It is intended to be a single source of truth for stakeholders who need deep technical and operational clarity.
 
----
+## 1. Purpose and Scope
 
-## 1. Audience and Scope
-
-- Audience: data analysts and analytics engineers who need to understand the preprocessing pipeline, its configuration, and how to interpret outputs.
-- Scope: end-to-end preprocessing flow from file upload to cleaned outputs, including optional correlation analysis and storage, with references to relevant services.
-
----
-
-## 2. System Overview (Data Perspective)
-
-QualiMind is a full-stack platform for preparing qualitative and mixed-type datasets for downstream ML or analytics. From a data analyst standpoint, the key elements are:
-
-- Upload a dataset (CSV/JSON/TXT) and create a preprocessing job.
-- R-Plumber service runs configurable preprocessing steps and optional correlation analysis.
-- Outputs include cleaned data, metadata describing applied steps, and processing summaries stored in Redis/PostgreSQL and exported as CSV/JSON/TXT.
-
-Primary runtime components:
-
-- Frontend (React): configuration and job monitoring UI.
-- Backend (Express/TypeScript): job orchestration, validation, storage integration.
-- R engine (Plumber): preprocessing logic and correlation analytics.
-- Redis + PostgreSQL: job state, caching, and processing summaries.
+- Purpose: Provide complete, detailed documentation for QualiMind from data analyst, data science, software engineering, and DevOps viewpoints.
+- Scope:
+  - Data ingestion and preprocessing logic (primary focus on R-Plumber pipeline).
+  - Backend orchestration and job management.
+  - Frontend configuration and monitoring flows.
+  - Storage layers (Redis, PostgreSQL, file output).
+  - Environment configurations and deployment topology.
+  - Operational guidelines, monitoring, testing, and risks.
 
 ---
 
-## 3. Directory Guide (Data Analyst Lens)
+## 2. System Overview
 
-Key directories by function:
+QualiMind is a full-stack system that transforms qualitative or mixed-type datasets into ML-ready representations. It is composed of:
 
-| Directory | Purpose | Data analyst relevance |
+- Frontend (React): dataset upload, preprocessing configuration, and job monitoring UI.
+- Backend (Express + TypeScript): API validation, queue orchestration, storage integration, and security.
+- R Engine (Plumber): preprocessing and correlation analysis, metadata generation, and storage writes.
+- Redis: short-term cache for processed results and metadata.
+- PostgreSQL: persistent storage for dataset metadata and processing summaries.
+
+Key goals:
+
+- Strict, configurable preprocessing (no implicit defaults in tasks mode).
+- Traceable preprocessing actions via metadata.
+- Real-time job updates and reproducible outputs.
+
+---
+
+## 3. Directory Guide (Exhaustive View)
+
+| Directory | Contents | Primary Roles |
 | --- | --- | --- |
-| `r-engine/` | R-Plumber preprocessing and correlation logic | Core data cleaning rules and metadata |
-| `server/` | API, job orchestration, storage, schemas | How data is validated, queued, and returned |
-| `frontend/` | UI for dataset upload and preprocessing config | How config is built and sent |
-| `datasets/` | Sample datasets | Example inputs for testing |
-| `infra/` | Deployment (Terraform + Docker) | Runtime connectivity to DB/Redis/R engine |
+| `r-engine/` | R-Plumber service, preprocessing, correlation logic | Data preprocessing core |
+| `server/` | Backend API, jobs, queue, storage, schemas | Orchestration and control plane |
+| `frontend/` | UI and preprocessing config builder | User-facing configuration |
+| `infra/` | Terraform and deployment files | Infrastructure provisioning |
+| `docker-compose.*.yml` | Multi-environment orchestration | DevOps runtime |
 
 ---
 
-## 4. End-to-End Preprocessing Flow
+## 4. Data Flow and Processing Lifecycle
 
-### 4.1 High-level steps
+### 4.1 High-level lifecycle
 
-1. User uploads dataset and selects preprocessing settings.
-2. Backend creates a ProcessingJob and enqueues it.
-3. Worker reads the dataset and calls the R engine `/clean` endpoint.
-4. R engine performs preprocessing and optional correlation analysis.
-5. Results and metadata are stored in Redis and PostgreSQL.
-6. API returns job result data; frontend shows cleaned data and summaries.
+1. User uploads dataset and chooses preprocessing configuration.
+2. Backend creates Dataset and ProcessingJob records.
+3. Job is enqueued via BullMQ.
+4. Worker reads dataset and calls R Engine `/clean`.
+5. R Engine performs preprocessing and correlation analysis.
+6. Results and metadata stored in Redis and PostgreSQL.
+7. Backend exposes results via API and export endpoints.
 
 ### 4.2 Data flow (logical)
 
-- Input file saved to disk by server (multer).
-- Server enqueues a preprocessing job (BullMQ).
-- Worker reads dataset file, parses into records, calls R engine.
-- R engine reads inline data (preferred) or file (fallback), runs preprocessing.
-- R engine stores results and metadata into Redis and PostgreSQL.
-- Server exposes results via `/api/jobs/:id/result` and export endpoints.
+- Input file saved via multer to server disk.
+- Worker reads file and parses to structured records.
+- R Engine processes inline data or falls back to stored path.
+- Cleaned data and metadata stored in Redis and Postgres.
+- Results are also converted to CSV and saved locally when requested.
+
+[IMAGE_PLACEHOLDER: Data Flow Diagram]
+[IMAGE_PROMPT: "Create a data flow diagram for QualiMind showing file upload, backend API, queue, worker, R engine, Redis, PostgreSQL, and API response to frontend. Use a clean data engineering style with arrows for flow."]
 
 ---
 
-## 5. Input Data Rules
+## 5. Input Data Handling
 
-### 5.1 Supported file types (upload)
+### 5.1 Supported formats
 
-- CSV, JSON, TXT, XLS/XLSX (allowed MIME types).
-- File size limit: 20MB.
+- CSV
+- JSON
+- TXT
+- XLS/XLSX (supported by MIME filter)
+
+File size limit: 20MB.
+
+### 5.2 Parsing strategy
+
+- Server parses CSV into row records before calling R Engine.
+- R Engine prefers inline data in request payload and falls back to file path if needed.
 
 Implementation references:
 - `server/src/loaders/multer.ts`
-
-### 5.2 Input parsing
-
-- Server reads CSV into row records before calling R engine.
-- Inline payload is preferred; the R engine can fallback to the stored file path.
-
-Implementation references:
 - `server/src/core/r-client.ts`
 - `r-engine/R/routes.R`
 
 ---
 
-## 6. Preprocessing Modes (Tasks vs Config)
+## 6. Preprocessing Modes
 
-There are two modes for preprocessing. If both are missing, preprocessing is a no-op.
-
-### 6.1 Mode A: Task list (legacy)
+### 6.1 Tasks mode (legacy)
 
 - Input: `preprocessingTasks` array.
-- Only tasks listed are executed. No defaults.
+- Strict: only listed tasks execute. No defaults.
 
-Core function:
-- `r-engine/R/preprocessing.R`
+Available tasks:
 
-Available tasks (legacy):
-
-| Task ID | Purpose |
+| Task ID | Description |
 | --- | --- |
 | `duplicate_removal` | Drop duplicate rows |
-| `missing_token_normalization` | Normalize tokens like "NA" or "" to NA |
-| `numeric_type_inference` | Convert numeric-like strings to numeric |
-| `handle_missing_categoricals` | Impute categorical missing values |
-| `clean_category_labels` | Normalize string labels |
-| `reduce_cardinality` | Collapse rare categories |
-| `feature_engineering` | Frequency encoding for selected categorical interactions |
-| `encode_categoricals` | One-hot or label encoding with frequency column |
-| `numeric_imputation` | Median imputation |
+| `missing_token_normalization` | Standardize tokens to NA |
+| `numeric_type_inference` | Cast numeric-like strings |
+| `handle_missing_categoricals` | Impute missing categoricals |
+| `clean_category_labels` | Normalize categorical strings |
+| `reduce_cardinality` | Replace rare categories |
+| `feature_engineering` | Interaction frequency encoding |
+| `encode_categoricals` | One-hot or label encoding |
+| `numeric_imputation` | Median numeric imputation |
 | `numeric_scaling` | Z-score scaling |
 
-### 6.2 Mode B: Preprocessing config (recommended)
+Implementation reference:
+- `r-engine/R/preprocessing.R`
+
+### 6.2 Config mode (recommended)
 
 - Input: `preprocessingConfig` JSON.
-- Steps define `task`, `method`, and scope (`appliesTo`).
-- Strict execution: only steps specified in config run.
-- IMPORTANT invariant: missing token normalization and numeric type inference always run as preflight steps in config mode.
+- Strict steps: only specified steps execute.
+- Preflight invariant: missing token normalization and numeric inference always run.
 
-Core function:
+Core implementation:
 - `r-engine/R/preprocessing_config.R`
 
 Schema summary:
@@ -148,99 +153,49 @@ Implementation references:
 
 ---
 
-## 7. Preprocessing Steps and Methods (Config Mode)
+## 7. Preprocessing Operations (Detailed)
 
-### 7.1 Preflight steps (always on in config mode)
+### 7.1 Preflight steps (config mode)
 
-| Step | Behavior |
-| --- | --- |
-| `preflight:missing_token_normalization` | Trims string values and replaces tokens (`NULL`, `NA`, `""`, `?`, etc.) with NA |
-| `preflight:numeric_type_inference` | Converts numeric-like strings to numeric (threshold 0.9) |
+- Missing token normalization: trims strings and replaces tokens (`NULL`, `NA`, empty) with NA.
+- Numeric type inference: converts numeric-like strings to numeric (threshold 0.9).
 
-These steps update `column_actions` in metadata to document where changes occurred.
+### 7.2 Missing values
 
-### 7.2 Task: Missing values
-
-Methods:
-
-| Method | Applies to | Behavior | Key params |
+| Method | Applies to | Behavior | Params |
 | --- | --- | --- | --- |
 | `numeric_median` | numeric | Median imputation | none |
 | `numeric_mean` | numeric | Mean imputation | none |
 | `numeric_constant` | numeric | Constant fill | `value` |
 | `categorical_mode` | categorical | Mode imputation | none |
-| `categorical_unknown` | categorical | Constant string | `unknownLevel` |
+| `categorical_unknown` | categorical | Constant fill | `unknownLevel` |
 
-### 7.3 Task: Label cleaning
+### 7.3 Label cleaning
 
-- Method: `standard`
-- Applies to categorical columns.
-- Normalization steps:
-  - trim whitespace
-  - lowercase
-  - replace non-alphanumeric with spaces
-  - collapse whitespace to `_`
-  - normalize underscores
+- Standardizes text by trimming, lowercasing, removing punctuation, and normalizing underscores.
 
-### 7.4 Task: Reduce cardinality
+### 7.4 Reduce cardinality
 
-- Method: `rare_to_other`
-- Applies to categorical columns.
-- Parameters:
-  - `rare_prop_threshold` (default 0.01)
-  - `high_cardinality_threshold` (default 50)
+- Rare categories collapsed to `other` below `rare_prop_threshold`.
+- Columns with > `high_cardinality_threshold` flagged.
 
-Behavior:
-- Categories below rare threshold are replaced with `other`.
-- Columns with cardinality > threshold are flagged in metadata.
+### 7.5 Encoding
 
-### 7.5 Task: Encoding
+- Frequency encoding always added (`<col>_freq`).
+- One-hot if levels <= `one_hot_max_levels`.
+- Otherwise label encoding with mapping.
+- Original categorical columns removed after encoding.
 
-- Method: `auto`
-- Applies to categorical columns.
+### 7.6 Scaling
 
-Behavior:
-- Always adds frequency encoding `<col>_freq`.
-- If unique levels <= `one_hot_max_levels` (default 10), performs one-hot.
-- Otherwise performs label encoding with `<col>_label`.
-- After encoding, original categorical columns are removed.
-
-### 7.6 Task: Scaling
-
-Methods:
-
-| Method | Applies to | Behavior |
-| --- | --- | --- |
-| `zscore` | numeric | Standard score | 
-| `minmax` | numeric | Min-max to 0..1 | 
-| `none` | numeric | No scaling | 
+- Z-score or min-max for numeric columns.
+- `none` to leave raw values.
 
 ---
 
-## 8. Legacy Task Pipeline Details
+## 8. Correlation Analysis (Optional)
 
-If `preprocessingTasks` is provided without config:
-
-- All behavior is opt-in; missing tasks do not execute.
-- No defaults are applied.
-- Task list and executed steps are stored in metadata.
-
-Key metadata fields:
-
-- `requested_tasks`: list of tasks asked for.
-- `executed_steps`: steps actually run (may include sub-steps).
-- `encoded_columns`, `frequency_encoded_columns`, `scaling_stats`, `rare_category_info`.
-
-Implementation references:
-- `r-engine/R/preprocessing.R`
-
----
-
-## 9. Correlation Analysis (Optional)
-
-If `correlationConfig` is provided, correlation is computed after preprocessing.
-
-### 9.1 Config
+Config example:
 
 ```
 {
@@ -253,23 +208,20 @@ If `correlationConfig` is provided, correlation is computed after preprocessing.
 }
 ```
 
-### 9.2 Behavior
+Behavior:
 
-- Non-numeric columns are excluded.
-- Constant columns are excluded.
-- If fewer than 2 usable numeric columns, a message is returned in metadata.
-- Top correlation pairs are sorted by absolute value and limited by `topK`.
+- Only numeric columns are used.
+- Constant or missing columns are excluded.
+- Returns top pairs sorted by absolute correlation.
 
 Implementation reference:
 - `r-engine/R/correlation.R`
 
 ---
 
-## 10. Metadata and Output Interpretation
+## 9. Metadata Output (Analyst Interpretation)
 
-### 10.1 Metadata structure
-
-The R engine returns `metadata` alongside cleaned data. Key fields:
+Key metadata fields:
 
 - `preprocessing_mode`: `tasks` or `config`
 - `original_rows`, `processed_rows`
@@ -278,116 +230,185 @@ The R engine returns `metadata` alongside cleaned data. Key fields:
 - `encoded_columns`, `frequency_encoded_columns`
 - `scaling_stats`, `encoding_stats`
 - `rare_category_info`, `high_cardinality_columns`
-- `column_actions` (config mode) showing per-column operations
-- `correlation` if analysis was requested
+- `column_actions` (config mode)
+- `correlation` (if requested)
 
-### 10.2 Storage
+---
 
-- Redis: stores processed data and metadata with TTL (24h).
-- PostgreSQL: stores processing summary in `dataset_processing_summary`.
+## 10. Backend Architecture (Software Engineering View)
 
-Implementation reference:
+### 10.1 API boundaries
+
+- `/api/datasets`: upload, list, update, delete
+- `/api/jobs`: status, result, export
+- `/api/preprocessing/suggest`: LLM-based config suggestion
+
+### 10.2 Job orchestration
+
+- BullMQ queue: `preprocess`
+- Worker: `server/src/workers/preprocess.worker.ts`
+- Job status updates persisted and broadcast in real time.
+
+### 10.3 Result handling
+
+- `result-store.ts` persists processed data to Redis and file system.
+- Exports CSV/JSON/TXT for analysts.
+
+---
+
+## 11. Data Science and Analytics Considerations
+
+- Strict preprocessing ensures reproducibility.
+- Metadata documents transformations for auditing.
+- Encoding and scaling affect interpretability; raw exports recommended for audit trails.
+- Correlation analysis is post-preprocessing and numeric-only.
+- Preflight conversion may affect mixed-type columns; check `column_actions`.
+
+---
+
+## 12. Database and Storage
+
+### 12.1 Core tables
+
+- `User`
+- `Dataset`
+- `ProcessingJob`
+- `dataset_processing_summary` (created by R engine)
+
+### 12.2 Storage tiers
+
+- Redis: fast retrieval, 24h TTL for processed results.
+- PostgreSQL: summary and metadata persistence.
+- File system: CSV export caching.
+
+Implementation references:
+- `server/prisma/schema.prisma`
 - `r-engine/R/storage.R`
 - `server/src/core/result-store.ts`
 
-### 10.3 Output fields
-
-The response from R engine includes:
-
-- `rows`, `columns` after preprocessing
-- `metadata` (detailed above)
-- `data` cleaned rows (NA serialized as JSON null)
-- `storage` status for Redis and PostgreSQL
-
-Implementation reference:
-- `r-engine/R/routes.R`
+[IMAGE_PLACEHOLDER: Database ERD]
+[IMAGE_PROMPT: "Create an ERD for QualiMind with User, Dataset, ProcessingJob, and dataset_processing_summary. Show one-to-many relationships and key columns. Clean technical style."]
 
 ---
 
-## 11. Job Lifecycle and Status
+## 13. Frontend Architecture
 
-Statuses:
-
-- `PENDING` -> `RUNNING` -> `SUCCESS` or `FAILED`
-
-Events are emitted for real-time UI updates.
+- Builds preprocessingConfig from explicit column overrides.
+- Validates config before sending.
+- Infers column types from sample rows.
 
 Implementation references:
-- `server/src/workers/preprocess.worker.ts`
-- `server/src/services/dataset.service.ts`
-
----
-
-## 12. API Endpoints Relevant to Data Analysts
-
-### 12.1 Dataset upload
-
-`POST /api/datasets`
-
-- multipart form with file
-- optional `preprocessingTasks`, `preprocessingConfig`, `correlationConfig`
-
-### 12.2 Job result
-
-`GET /api/jobs/:id/result`
-
-- returns processed data and metadata
-
-### 12.3 Export results
-
-`GET /api/jobs/:id/export?format=csv|json|txt`
-
-Implementation references:
-- `server/src/docs/dataset.docs.ts`
-- `server/src/jobs/routes.job.ts`
-- `server/src/jobs/service.job.ts`
-
----
-
-## 13. Frontend Config Generation (Analyst View)
-
-### 13.1 Explicit per-column configuration
-
-Frontend builds `preprocessingConfig` only from explicit overrides. No implicit defaults.
-
-Implementation reference:
 - `frontend/src/lib/buildPreprocessingConfig.js`
-
-### 13.2 Type inference in UI
-
-The UI infers column types based on sample rows (>= 90 percent numeric-like -> numeric).
-
-Implementation reference:
+- `frontend/src/lib/preprocessingConfigValidation.js`
 - `frontend/src/helpers/type_inference.helper.js`
 
 ---
 
 ## 14. Preprocessing Suggestion Service (LLM)
 
-The system can generate a suggested `preprocessingConfig` based on sample rows and column profiles.
-
-Flow:
-
-- API receives sample rows and column profiles.
-- LLM provider returns a config.
-- Config is validated and normalized into canonical params.
+- Accepts dataset sample rows and column profiles.
+- LLM generates a preprocessingConfig.
+- Output validated with Zod schema and normalized into canonical params.
 
 Implementation references:
-- `server/src/modules/preprocessing-suggest/` (validation, normalization, providers)
+- `server/src/modules/preprocessing-suggest/`
 
 ---
 
-## 15. Operational Notes and Analyst Considerations
+## 15. DevOps and Deployment
 
-- If no tasks/config are provided, preprocessing is a no-op, and metadata reflects zero changes.
-- In config mode, missing token normalization and numeric inference always occur even without explicit steps. This can change data types before other steps.
-- Encoding removes original categorical columns; downstream models should use encoded fields.
-- When correlation is requested, it is computed post-preprocessing on numeric columns only.
-- Redis TTL is 24 hours; PostgreSQL stores the summary permanently.
+### 15.1 Docker Compose environments
+
+- Development: `docker-compose.dev.yml`
+- Testing: `docker-compose.testing.yml`
+- Predeploy: `docker-compose.predeploy.yml`
+
+Services:
+
+- Postgres
+- Redis
+- Server (API)
+- Worker
+- Frontend
+- R engine
+
+### 15.2 Terraform (AWS)
+
+- Provisions EC2 host, security groups, and key pairs.
+- Writes `predeploy.json` for frontend API targeting.
+
+Implementation references:
+- `infra/main.tf`
+- `infra/variables.tf`
+
+[IMAGE_PLACEHOLDER: Deployment Topology]
+[IMAGE_PROMPT: "Create a deployment topology diagram for QualiMind with Docker Compose services and AWS EC2 host. Show networking boundaries, ports, and service dependencies. Professional DevOps style."]
 
 ---
 
-## 16. Example PreprocessingConfig (Minimal)
+## 16. Security and Compliance
+
+- JWT-based authentication for API routes.
+- File type and size validation.
+- Data stored in Postgres and Redis with access controlled at service layer.
+- No automatic PII redaction; analysts must ensure compliance.
+
+---
+
+## 17. Testing and Quality Assurance
+
+- Backend tests in `server/tests`.
+- R engine tests (if configured).
+- Frontend tests via Vite tooling.
+
+Suggested testing flows:
+
+- Upload dataset with preprocessing config and verify metadata fields.
+- Verify Redis and Postgres storage consistency.
+- Validate export formats.
+
+---
+
+## 18. Observability and Monitoring
+
+- Logging in backend and worker.
+- Job status tracked in database.
+- Health endpoint in R engine (`/health`).
+
+Recommended additions:
+
+- Centralized log aggregation.
+- Metrics for job runtime and failure rates.
+
+---
+
+## 19. Operational Risks and Constraints
+
+- Large datasets may exceed R memory constraints.
+- Timeout for R engine requests is 5 minutes.
+- Preflight type inference can change column semantics.
+- Redis TTL can cause result loss if not persisted to Postgres.
+
+---
+
+## 20. Detailed Example (End-to-End)
+
+1. Upload `survey.csv` with preprocessing config.
+2. Job created and queued.
+3. Worker sends inline data to R engine.
+4. R engine runs preflight + steps, optional correlation.
+5. Metadata returned and stored.
+6. Analyst exports CSV and reviews `processing_summary`.
+
+---
+
+## 21. Preprocessing Config Cookbook (Practical Templates)
+
+This section provides practical, reusable preprocessing configurations tailored to common dataset types. Each template is compatible with the R-engine `preprocessingConfig` schema.
+
+### 21.1 Survey Feedback (Categorical + Numeric)
+
+Use when you have survey metadata (categorical) and ratings (numeric).
 
 ```
 {
@@ -396,24 +417,126 @@ Implementation references:
     {
       "task": "missing_values",
       "method": "categorical_unknown",
-      "appliesTo": { "columns": ["feedback_type"] },
+      "appliesTo": { "types": ["categorical"] },
       "params": { "unknownLevel": "unknown" }
     },
     {
       "task": "label_cleaning",
       "method": "standard",
-      "appliesTo": { "columns": ["feedback_type"] }
+      "appliesTo": { "types": ["categorical"] }
+    },
+    {
+      "task": "reduce_cardinality",
+      "method": "rare_to_other",
+      "appliesTo": { "types": ["categorical"] },
+      "params": { "rare_prop_threshold": 0.01, "high_cardinality_threshold": 50 }
     },
     {
       "task": "encoding",
       "method": "auto",
-      "appliesTo": { "columns": ["feedback_type"] },
+      "appliesTo": { "types": ["categorical"] },
       "params": { "one_hot_max_levels": 10 }
+    },
+    {
+      "task": "missing_values",
+      "method": "numeric_median",
+      "appliesTo": { "types": ["numeric"] }
     },
     {
       "task": "scaling",
       "method": "zscore",
-      "appliesTo": { "columns": ["rating"] }
+      "appliesTo": { "types": ["numeric"] }
+    }
+  ]
+}
+```
+
+### 21.2 Customer Support Tickets (Mostly Text Labels + IDs)
+
+Use when you need stable encoded features from categorical columns with many distinct values.
+
+```
+{
+  "version": "1.0",
+  "steps": [
+    {
+      "task": "missing_values",
+      "method": "categorical_unknown",
+      "appliesTo": { "types": ["categorical"] },
+      "params": { "unknownLevel": "unknown" }
+    },
+    {
+      "task": "label_cleaning",
+      "method": "standard",
+      "appliesTo": { "types": ["categorical"] }
+    },
+    {
+      "task": "reduce_cardinality",
+      "method": "rare_to_other",
+      "appliesTo": { "types": ["categorical"] },
+      "params": { "rare_prop_threshold": 0.005, "high_cardinality_threshold": 100 }
+    },
+    {
+      "task": "encoding",
+      "method": "auto",
+      "appliesTo": { "types": ["categorical"] },
+      "params": { "one_hot_max_levels": 6 }
+    }
+  ]
+}
+```
+
+### 21.3 Product Feedback with Numeric KPIs
+
+Use when numeric measures are primary and categorical columns are small.
+
+```
+{
+  "version": "1.0",
+  "steps": [
+    {
+      "task": "missing_values",
+      "method": "numeric_mean",
+      "appliesTo": { "types": ["numeric"] }
+    },
+    {
+      "task": "scaling",
+      "method": "minmax",
+      "appliesTo": { "types": ["numeric"] }
+    },
+    {
+      "task": "missing_values",
+      "method": "categorical_mode",
+      "appliesTo": { "types": ["categorical"] }
+    },
+    {
+      "task": "encoding",
+      "method": "auto",
+      "appliesTo": { "types": ["categorical"] },
+      "params": { "one_hot_max_levels": 12 }
+    }
+  ]
+}
+```
+
+### 21.4 Minimal Safe Baseline (Conservative)
+
+Use when you want only cleaning and no aggressive transformation.
+
+```
+{
+  "version": "1.0",
+  "steps": [
+    {
+      "task": "missing_values",
+      "method": "categorical_unknown",
+      "appliesTo": { "types": ["categorical"] },
+      "params": { "unknownLevel": "unknown" }
+    },
+    {
+      "task": "missing_values",
+      "method": "numeric_median",
+      "appliesTo": { "types": ["numeric"] }
     }
   ]
 }
@@ -421,15 +544,93 @@ Implementation references:
 
 ---
 
-## 17. Known Limits and Risks
+## 22. Performance Benchmarks and Scaling Guidance
 
-- Large datasets may be constrained by R memory and the 5-minute request timeout to the R engine.
-- Mixed-format columns may be forced to numeric in preflight if 90 percent numeric-like; analysts should check `column_actions` to see changes.
-- Encoding and scaling are irreversible for human-readable outputs; export raw data if needed for audit.
+This section provides practical performance constraints and scaling considerations for analysts and engineers.
+
+### 22.1 Timeouts and limits
+
+- R engine request timeout: 5 minutes (backend client timeout).
+- File size limit: 20MB upload constraint.
+- Redis TTL: 24 hours for processed results.
+
+### 22.2 Computational hotspots
+
+- High cardinality categorical encoding can create many columns.
+- One-hot encoding increases memory usage quickly when category counts rise.
+- Correlation analysis is O(n^2) over selected numeric columns.
+
+### 22.3 Scaling recommendations
+
+- For large datasets, reduce `one_hot_max_levels` and prefer label encoding.
+- Use `reduce_cardinality` aggressively for high-cardinality columns.
+- Limit correlation analysis to a curated subset of columns.
+- Consider horizontal scaling of the R engine for parallel job processing.
+
+### 22.4 Benchmarking checklist (for QA and DevOps)
+
+- Measure job runtime by dataset size (rows, columns).
+- Track memory usage and R engine response times.
+- Validate storage latency to Redis and PostgreSQL.
+- Track failure rates by preprocessing task combination.
 
 ---
 
-## 18. Key Source References
+## 23. Validation and QA (Test Cases and Expected Outcomes)
+
+This section provides a structured QA checklist with concrete test cases and expected outputs.
+
+### 23.1 Preprocessing config validation tests
+
+- Invalid JSON for `preprocessingConfig` must return HTTP 400.
+- Missing `steps` array must return validation error.
+- Missing `task` or `method` in a step must fail validation.
+- `appliesTo` must include `types` or `columns`.
+
+### 23.2 Data quality and transformation tests
+
+Test Case A: Missing categorical values\n
+- Input: categorical column with NA and mode known.\n
+- Config: `categorical_mode`.\n
+- Expected: NA replaced by modal category.\n
+- Metadata: `column_actions` includes `missing_values:categorical_mode`.\n
+
+Test Case B: Numeric scaling\n
+- Input: numeric column with known mean and SD.\n
+- Config: `scaling:zscore`.\n
+- Expected: transformed values with mean ~0, SD ~1.\n
+- Metadata: `scaling_stats` populated for column.\n
+
+Test Case C: Encoding with small cardinality\n
+- Input: categorical column with <= 10 levels.\n
+- Config: `encoding:auto` with `one_hot_max_levels=10`.\n
+- Expected: one-hot columns added, original removed.\n
+- Metadata: `encoding_stats.method=one_hot`.\n
+
+Test Case D: Correlation analysis\n
+- Input: at least two numeric columns.\n
+- Config: correlation with `method=pearson`.\n
+- Expected: `top_pairs` returned, optional matrix included.\n
+
+### 23.3 Storage validation tests
+
+- If Redis is unavailable, PostgreSQL storage should still persist summary.\n
+- If PostgreSQL storage fails, Redis success should still mark job as cleaned with warning.\n
+- Export endpoints must return CSV/JSON/TXT as expected.\n
+
+---
+
+## 24. Additional Placeholders
+
+[IMAGE_PLACEHOLDER: UI Screenshot - Upload and Config]
+[IMAGE_PROMPT: "Create a clean UI mockup of a dataset upload and preprocessing config panel with tables and toggle controls. Professional enterprise style."]
+
+[IMAGE_PLACEHOLDER: UI Screenshot - Job Monitoring]
+[IMAGE_PROMPT: "Create a UI mockup of a job monitoring dashboard with status indicators, progress, and result summaries. Professional enterprise style."]
+
+---
+
+## 25. Key Source References
 
 - R preprocessing logic: `r-engine/R/preprocessing.R`
 - Config-based preprocessing: `r-engine/R/preprocessing_config.R`
@@ -442,4 +643,4 @@ Implementation references:
 
 ---
 
-If you want a shorter analyst quick-start or a diagram-focused version, say the word and I will generate a condensed companion page.
+If you want a further expanded section or a domain-specific appendix (e.g., NLP preprocessing or compliance), specify the target domain and I will extend the document.
