@@ -1,6 +1,12 @@
-# QualiMind Comprehensive Documentation (Scientific and IT Perspective)
+# QualiMind
 
 This document provides a detailed, scientific, and IT-centric documentation of the QualiMind system. It covers data analytics, software engineering, DevOps, and data-science perspectives with a strong emphasis on the R-Plumber preprocessing pipeline. It is intended to be a single source of truth for stakeholders who need deep technical and operational clarity.
+
+---
+
+## Abstract
+
+QualiMind is an intelligent preprocessing platform for qualitative and mixed-type datasets. It combines a React-based frontend, an Express/TypeScript backend, and an R-Plumber preprocessing service to standardize data cleaning, encoding, and optional correlation analysis. The system emphasizes reproducibility, strict configuration, and traceable metadata to support downstream analytics and machine learning pipelines. Results are stored in Redis and PostgreSQL, enabling both real-time access and persistent summaries. A predeployment environment is hosted on AWS EC2, and a reverse proxy routes traffic to the public endpoint at `https://qualimind.kamalbhaiii.de` for external access.
 
 ---
 
@@ -343,6 +349,9 @@ Services:
 
 - Provisions EC2 host, security groups, and key pairs.
 - Writes `predeploy.json` for frontend API targeting.
+- Predeployment is deployed on an AWS EC2 instance.
+- Reverse proxy routes the public domain `https://qualimind.kamalbhaiii.de` to the running predeployment services.
+- Nginx is used as the reverse proxy, with TLS certificates issued via Certbot.
 
 Implementation references:
 - `infra/main.tf`
@@ -626,6 +635,42 @@ Test Case D: Correlation analysis\n
 
 ---
 
+## Team
+
+- Kamal Sharma
+- Varshitha Ramamurthy
+- Kanan Nileshbhai Anadkat
+- Ronishabahen Sureshbhai Desai
+- Deepak Kumar
+
+---
+
+## Team Member Roles
+
+- Kamal Sharma: Backend Developer; CI/CD Engineer; Frontend Lead, R Integration Lead
+- Varshitha Ramamurthy: Documentation Lead; UI/UX Lead
+- Kanan Nileshbhai Anadkat: Frontend Support; UI/UX Support
+- Ronishabahen Sureshbhai Desai: QA Support; Frontend Support
+- Deepak Kumar: QA Testing Lead; R Integration Support
+
+---
+
+## Future Scope
+
+- Advanced NLP preprocessing modules (tokenization, lemmatization, language detection).
+- Role-based access control and dataset-level governance policies.
+- Automated data-quality scoring and anomaly detection.
+- MLOps integration for model training pipelines and experiment tracking.
+- Horizontal scaling of R engine with job prioritization and autoscaling.
+
+---
+
+## Acknowledgement
+
+This project is developed for the High Integrity Systems course (Winter Semester 2025/26) at Frankfurt University of Applied Sciences. We thank Prof. Dr. Christina Andersson for academic guidance and support.
+
+---
+
 ## 24. Key Source References
 
 - R preprocessing logic: `r-engine/R/preprocessing.R`
@@ -638,5 +683,3 @@ Test Case D: Correlation analysis\n
 - Frontend config builder: `frontend/src/lib/buildPreprocessingConfig.js`
 
 ---
-
-If you want a further expanded section or a domain-specific appendix (e.g., NLP preprocessing or compliance), specify the target domain and I will extend the document.
