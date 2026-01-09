@@ -1,5 +1,5 @@
 // components/organisms/Step2PreprocessingOrchestrator.jsx
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 
 import FlexBox from "../../atoms/FlexBox";
@@ -29,6 +29,48 @@ function prettyType(t) {
   if (isNumericType(t)) return "Numeric";
   if (isCategoricalType(t)) return "Categorical";
   return "Unknown";
+}
+
+/* --------------------------- small helpers --------------------------- */
+
+function uniq(arr) {
+  return Array.from(new Set(arr));
+}
+
+/**
+ * Parse ranges like:
+ * "1-5" -> [1,2,3,4,5]
+ * "1-5, 8, 10-12" -> ...
+ * "3" -> [3]
+ * Invalid tokens are ignored.
+ */
+function parseNumberRanges(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+
+  const parts = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const nums = [];
+  for (const part of parts) {
+    const m = part.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (m) {
+      const a = Number(m[1]);
+      const b = Number(m[2]);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      const start = Math.min(a, b);
+      const end = Math.max(a, b);
+      for (let i = start; i <= end; i += 1) nums.push(i);
+      continue;
+    }
+
+    const single = part.match(/^\d+$/);
+    if (single) nums.push(Number(part));
+  }
+
+  return uniq(nums).filter((n) => Number.isFinite(n) && n > 0);
 }
 
 /* --------------------------- UI subcomponents -------------------------- */
@@ -117,23 +159,13 @@ const LABELS = {
 
 function summarizeOverridesForColumn(colOverride) {
   const out = [];
-
   if (!colOverride || typeof colOverride !== "object") return out;
 
-  // label cleaning
   if (colOverride.label_cleaning?.method === "standard") out.push(LABELS.label_cleaning);
-
-  // missing values
   if (colOverride.missing_values?.categorical?.method) out.push(LABELS.missing_cat);
   if (colOverride.missing_values?.numeric?.method) out.push(LABELS.missing_num);
-
-  // reduce cardinality
   if (colOverride.reduce_cardinality?.method) out.push(LABELS.reduce_cardinality);
-
-  // encoding
   if (colOverride.encoding?.method) out.push(LABELS.encoding);
-
-  // scaling
   if (colOverride.scaling?.method) out.push(LABELS.scaling);
 
   return out;
@@ -165,8 +197,7 @@ export default function Step2PreprocessingOrchestrator({
 }) {
   const [mode, setMode] = useState("bulk");
 
-  // IMPORTANT: ModeTabs often calls onChange(event, value)
-  const handleModeChange = (arg1, arg2) => {
+  const handleModeChange = useCallback((arg1, arg2) => {
     const next =
       typeof arg2 === "string"
         ? arg2
@@ -175,7 +206,7 @@ export default function Step2PreprocessingOrchestrator({
           : arg1?.target?.value;
 
     setMode(next === "config" || next === "bulk" ? next : "bulk");
-  };
+  }, []);
 
   const tabs = useMemo(
     () => [
@@ -185,15 +216,62 @@ export default function Step2PreprocessingOrchestrator({
     []
   );
 
-  // multi-select rows
+  // selection
   const [selectedCols, setSelectedCols] = useState([]);
   const [colSearch, setColSearch] = useState("");
+
+  const handleSearchChange = useCallback((e) => setColSearch(e.target.value), []);
 
   const filteredColumns = useMemo(() => {
     const q = String(colSearch || "").trim().toLowerCase();
     if (!q) return columns || [];
     return (columns || []).filter((c) => String(c).toLowerCase().includes(q));
   }, [columns, colSearch]);
+
+  // Split into lists
+  const { categoricalColumns, numericColumns, unknownColumns } = useMemo(() => {
+    const cats = [];
+    const nums = [];
+    const unk = [];
+
+    for (const col of filteredColumns || []) {
+      const t = columnTypes?.[col];
+      if (isCategoricalType(t)) cats.push(col);
+      else if (isNumericType(t)) nums.push(col);
+      else unk.push(col);
+    }
+
+    cats.sort((a, b) => String(a).localeCompare(String(b)));
+    nums.sort((a, b) => String(a).localeCompare(String(b)));
+    unk.sort((a, b) => String(a).localeCompare(String(b)));
+
+    return { categoricalColumns: cats, numericColumns: nums, unknownColumns: unk };
+  }, [filteredColumns, columnTypes]);
+
+  // list-local index maps
+  const catIndexToCol = useMemo(() => {
+    const map = {};
+    (categoricalColumns || []).forEach((c, idx) => {
+      map[idx + 1] = c;
+    });
+    return map;
+  }, [categoricalColumns]);
+
+  const numIndexToCol = useMemo(() => {
+    const map = {};
+    (numericColumns || []).forEach((c, idx) => {
+      map[idx + 1] = c;
+    });
+    return map;
+  }, [numericColumns]);
+
+  const unkIndexToCol = useMemo(() => {
+    const map = {};
+    (unknownColumns || []).forEach((c, idx) => {
+      map[idx + 1] = c;
+    });
+    return map;
+  }, [unknownColumns]);
 
   const selectedSummary = useMemo(() => {
     const selected = selectedCols || [];
@@ -206,21 +284,87 @@ export default function Step2PreprocessingOrchestrator({
   const configuredColumns = useMemo(() => Object.keys(overrides || {}), [overrides]);
   const configuredCount = configuredColumns.length;
 
-  const toggleSelected = (col) => {
+  const toggleSelected = useCallback((col) => {
     setSelectedCols((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
-  };
+  }, []);
 
-  const clearOverridesForColumn = (col) => {
-    setOverrides((prev) => {
-      const next = { ...(prev || {}) };
-      delete next[col];
-      return next;
+  const clearOverridesForColumn = useCallback(
+    (col) => {
+      setOverrides((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[col];
+        return next;
+      });
+    },
+    [setOverrides]
+  );
+
+  /* --------------------- Range-based selection per list --------------------- */
+
+  const [catRange, setCatRange] = useState("");
+  const [numRange, setNumRange] = useState("");
+  const [unkRange, setUnkRange] = useState("");
+
+  const handleCatRangeChange = useCallback((e) => setCatRange(e.target.value), []);
+  const handleNumRangeChange = useCallback((e) => setNumRange(e.target.value), []);
+  const handleUnkRangeChange = useCallback((e) => setUnkRange(e.target.value), []);
+
+  const [catRangeHint, setCatRangeHint] = useState(null);
+  const [numRangeHint, setNumRangeHint] = useState(null);
+  const [unkRangeHint, setUnkRangeHint] = useState(null);
+
+  const validateRange = useCallback(({ rangeText, indexToCol }) => {
+    const nums = parseNumberRanges(rangeText);
+    if (!nums.length) {
+      return { ok: false, message: "Enter a range like “1-5” or “1-3, 7, 10-12”." };
+    }
+
+    const validCols = nums.map((n) => indexToCol[n]).filter(Boolean);
+    if (!validCols.length) {
+      return { ok: false, message: "No valid indices matched in this list. Check the numbers shown in the list." };
+    }
+
+    const unknown = nums.filter((n) => !indexToCol[n]);
+    if (unknown.length) {
+      return {
+        ok: true,
+        message: `Some indices are out of range and ignored: ${unknown.slice(0, 8).join(", ")}${
+          unknown.length > 8 ? "…" : ""
+        }`,
+      };
+    }
+
+    return { ok: true, message: null };
+  }, []);
+
+  const applyRangeToSelection = useCallback(({ rangeText, indexToCol, allowedCols, mode: mergeMode }) => {
+    const allowedSet = new Set(allowedCols || []);
+    const nums = parseNumberRanges(rangeText);
+
+    const pickedCols = nums
+      .map((n) => indexToCol[n])
+      .filter(Boolean)
+      .filter((col) => allowedSet.has(col));
+
+    setSelectedCols((prev) => {
+      const prevArr = Array.isArray(prev) ? prev : [];
+
+      if (mergeMode === "replace") {
+        const keep = prevArr.filter((c) => !allowedSet.has(c));
+        return uniq([...keep, ...pickedCols]);
+      }
+
+      if (mergeMode === "remove") {
+        const toRemove = new Set(pickedCols);
+        return prevArr.filter((c) => !toRemove.has(c));
+      }
+
+      return uniq([...prevArr, ...pickedCols]);
     });
-  };
+  }, []);
 
   /* ------------------------- Right panel (group apply) ------------------------- */
 
-  // local group selections (no vague checkboxes; use toggle pills)
   const [catMissingEnabled, setCatMissingEnabled] = useState(false);
   const [catMissingMethod, setCatMissingMethod] = useState(defaults?.categoricalMissing || "categorical_unknown");
   const [unknownLevel, setUnknownLevel] = useState(defaults?.unknownLevel || "unknown");
@@ -241,14 +385,29 @@ export default function Step2PreprocessingOrchestrator({
   const [scalingEnabled, setScalingEnabled] = useState(false);
   const [scalingMethod, setScalingMethod] = useState(defaults?.scaling || "zscore");
 
-  const applyToSelected = () => {
-    const cols = selectedCols || [];
-    if (!cols.length) return;
+  const handleUnknownLevelChange = useCallback((e) => setUnknownLevel(e.target.value), []);
+  const handleRarePropThresholdChange = useCallback((e) => setRarePropThreshold(e.target.value), []);
+  const handleHighCardThresholdChange = useCallback((e) => setHighCardThreshold(e.target.value), []);
+  const handleOneHotMaxLevelsChange = useCallback((e) => setOneHotMaxLevels(e.target.value), []);
+  const handleNumConstantChange = useCallback((e) => setNumConstant(e.target.value), []);
+
+  /**
+   * NEW REQUIREMENT:
+   * When user clicks "Apply to selected", apply overrides AND clear the selection afterwards.
+   *
+   * Implementation detail:
+   * - We take a snapshot of current selected columns (colsSnapshot) so we can safely clear selection
+   *   while still applying config to those columns.
+   * - We also clear range input text boxes & hints for a clean UX.
+   */
+  const applyToSelected = useCallback(() => {
+    const colsSnapshot = Array.isArray(selectedCols) ? [...selectedCols] : [];
+    if (!colsSnapshot.length) return;
 
     setOverrides((prev) => {
       const next = { ...(prev || {}) };
 
-      cols.forEach((col) => {
+      colsSnapshot.forEach((col) => {
         const t = columnTypes?.[col];
         const isCat = isCategoricalType(t);
         const isNum = isNumericType(t);
@@ -334,10 +493,7 @@ export default function Step2PreprocessingOrchestrator({
       return next;
     });
 
-    // keep selection "reselected" (do NOT clear)
-    setSelectedCols((prev) => prev);
-
-    // keep defaults synchronized for better UX continuity
+    // sync defaults (same as before)
     setDefaults((prev) => ({
       ...(prev || {}),
       categoricalMissing: catMissingMethod,
@@ -345,11 +501,41 @@ export default function Step2PreprocessingOrchestrator({
       numericMissing: numMissingMethod,
       numericConstant: Number.isFinite(Number(numConstant)) ? Number(numConstant) : 0,
       scaling: scalingMethod,
-      oneHotMaxLevels: Number.isFinite(Number(oneHotMaxLevels)) ? Number(oneHotMaxLevels) : 10,
+      oneHotMaxLevels: Number.isFinite(Number(oneHotMaxMaxLevelsSafe(oneHotMaxLevels))) ? Number(oneHotMaxLevels) : 10,
       rarePropThreshold: Number.isFinite(Number(rarePropThreshold)) ? Number(rarePropThreshold) : 0.01,
       highCardinalityThreshold: Number.isFinite(Number(highCardThreshold)) ? Number(highCardThreshold) : 50,
     }));
-  };
+
+    // NEW: clear selection
+    setSelectedCols([]);
+
+    // NEW: clear range inputs and hints (optional but aligns with "remove the selection" UX)
+    setCatRange("");
+    setNumRange("");
+    setUnkRange("");
+    setCatRangeHint(null);
+    setNumRangeHint(null);
+    setUnkRangeHint(null);
+  }, [
+    selectedCols,
+    setOverrides,
+    setDefaults,
+    columnTypes,
+    labelCleanEnabled,
+    catMissingEnabled,
+    catMissingMethod,
+    unknownLevel,
+    reduceEnabled,
+    rarePropThreshold,
+    highCardThreshold,
+    encodingEnabled,
+    oneHotMaxLevels,
+    numMissingEnabled,
+    numMissingMethod,
+    numConstant,
+    scalingEnabled,
+    scalingMethod,
+  ]);
 
   /* ------------------------------- AI Suggest ------------------------------- */
 
@@ -358,7 +544,7 @@ export default function Step2PreprocessingOrchestrator({
   const [aiError, setAiError] = useState(null);
   const [aiSuggestion, setAiSuggestion] = useState(null);
 
-  function pickRandomSample(rows, n) {
+  const pickRandomSample = useCallback((rows, n) => {
     const arr = Array.isArray(rows) ? rows.slice() : [];
     if (arr.length <= n) return arr;
     for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -368,45 +554,48 @@ export default function Step2PreprocessingOrchestrator({
       arr[j] = tmp;
     }
     return arr.slice(0, n);
-  }
+  }, []);
 
-  function isMissing(v) {
+  const isMissing = useCallback((v) => {
     if (v === null || v === undefined) return true;
     if (typeof v === "string" && v.trim() === "") return true;
     return false;
-  }
+  }, []);
 
-  function buildColumnProfiles({ cols, types, sampleRows }) {
-    const profiles = [];
-    for (const col of cols) {
-      const inferredType = types?.[col] || "unknown";
-      let missingCount = 0;
-      const uniques = new Set();
-      const sampleValues = [];
+  const buildColumnProfiles = useCallback(
+    ({ cols, types, sampleRows }) => {
+      const profiles = [];
+      for (const col of cols) {
+        const inferredType = types?.[col] || "unknown";
+        let missingCount = 0;
+        const uniques = new Set();
+        const sampleValues = [];
 
-      for (const row of sampleRows) {
-        const v = row?.[col];
-        if (isMissing(v)) {
-          missingCount += 1;
-          continue;
+        for (const row of sampleRows) {
+          const v = row?.[col];
+          if (isMissing(v)) {
+            missingCount += 1;
+            continue;
+          }
+          const s = String(v);
+          uniques.add(s);
+          if (sampleValues.length < 8) sampleValues.push(s);
         }
-        const s = String(v);
-        uniques.add(s);
-        if (sampleValues.length < 8) sampleValues.push(s);
+
+        profiles.push({
+          name: col,
+          inferredType,
+          missingCount,
+          uniqueCount: uniques.size,
+          sampleValues,
+        });
       }
+      return profiles;
+    },
+    [isMissing]
+  );
 
-      profiles.push({
-        name: col,
-        inferredType,
-        missingCount,
-        uniqueCount: uniques.size,
-        sampleValues,
-      });
-    }
-    return profiles;
-  }
-
-  const handleAiSuggest = async () => {
+  const handleAiSuggest = useCallback(async () => {
     setAiConsoleOpen(true);
     setAiLoading(true);
     setAiError(null);
@@ -438,10 +627,9 @@ export default function Step2PreprocessingOrchestrator({
     } finally {
       setAiLoading(false);
     }
-  };
+  }, [previewRows, pickRandomSample, buildColumnProfiles, columns, columnTypes, filename]);
 
-  // NOTE: you already have conversion logic in older versions; keep your existing accept flow if you prefer.
-  const handleAiAccept = () => {
+  const handleAiAccept = useCallback(() => {
     if (!aiSuggestion?.preprocessingConfig) return;
 
     setCustomConfigText(JSON.stringify(aiSuggestion.preprocessingConfig, null, 2));
@@ -450,9 +638,9 @@ export default function Step2PreprocessingOrchestrator({
     setUseCustomConfig(true);
 
     setAiConsoleOpen(false);
-  };
+  }, [aiSuggestion, setCustomConfigText, setCustomConfigParsed, setCustomConfigError, setUseCustomConfig]);
 
-  const handleAiReject = () => setAiConsoleOpen(false);
+  const handleAiReject = useCallback(() => setAiConsoleOpen(false), []);
 
   /* ------------------------------ Applied summary ------------------------------ */
 
@@ -467,10 +655,125 @@ export default function Step2PreprocessingOrchestrator({
         labels,
       });
     }
-    // stable sort by col
     out.sort((a, b) => String(a.col).localeCompare(String(b.col)));
     return out;
   }, [overrides, columnTypes]);
+
+  /* ------------------------------ Column row renderer ------------------------------ */
+
+  const renderColumnRow = useCallback(
+    ({ col, index, listKind }) => {
+      const t = columnTypes?.[col];
+      const selected = selectedCols.includes(col);
+      const configured = !!overrides?.[col];
+
+      return (
+        <div
+          key={col}
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleSelected(col)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") toggleSelected(col);
+          }}
+          style={{
+            border: "1px solid rgba(0,0,0,0.10)",
+            borderRadius: 12,
+            padding: 12,
+            cursor: "pointer",
+            outline: "none",
+            background: selected ? "rgba(25,118,210,0.08)" : "white",
+            boxShadow: selected ? "0 0 0 2px rgba(25,118,210,0.15) inset" : "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.25, minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ opacity: 0.75, marginRight: 8 }}>{`${index}.`}</span>
+              {col}
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              {configured ? "Configured" : "Not configured"}
+            </Typography>
+          </FlexBox>
+
+          <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Badge text={prettyType(t)} kind={listKind} />
+          </FlexBox>
+        </div>
+      );
+    },
+    [columnTypes, overrides, selectedCols, toggleSelected]
+  );
+
+  const SelectionRangeBar = useCallback(
+    ({ title, value, onChange, hint, onAdd, onReplace, onRemove }) => (
+      <FlexBox
+        sx={{
+          mt: 1,
+          border: "1px solid rgba(0,0,0,0.08)",
+          borderRadius: 2,
+          padding: 1,
+          background: "rgba(0,0,0,0.015)",
+        }}
+      >
+        <Typography variant="caption" sx={{ fontWeight: 800 }}>
+          Select by range — {title}
+        </Typography>
+
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "rgba(0,0,0,0.7)" }}>Range</div>
+          <input
+            value={value}
+            onChange={onChange}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder="e.g. 1-5, 8, 10-12"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.15)",
+              outline: "none",
+              fontSize: 13,
+            }}
+          />
+          <div style={{ marginTop: 6, fontSize: 12, color: hint ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.35)" }}>
+            {hint || " "}
+          </div>
+        </div>
+
+        <FlexBox sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Button variant="outlined" color="inherit" onClick={onRemove}>
+            Remove
+          </Button>
+          <Button variant="outlined" color="inherit" onClick={onReplace}>
+            Replace
+          </Button>
+          <Button variant="contained" color="primary" onClick={onAdd}>
+            Add
+          </Button>
+        </FlexBox>
+      </FlexBox>
+    ),
+    []
+  );
+
+  const catRows = useMemo(
+    () => (categoricalColumns || []).map((col, i) => ({ col, index: i + 1, listKind: "cat" })),
+    [categoricalColumns]
+  );
+  const numRows = useMemo(
+    () => (numericColumns || []).map((col, i) => ({ col, index: i + 1, listKind: "num" })),
+    [numericColumns]
+  );
+  const unkRows = useMemo(
+    () => (unknownColumns || []).map((col, i) => ({ col, index: i + 1, listKind: "unk" })),
+    [unknownColumns]
+  );
 
   return (
     <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -484,7 +787,6 @@ export default function Step2PreprocessingOrchestrator({
         onReject={handleAiReject}
       />
 
-      {/* Header / tasks card */}
       <SectionCard>
         <FlexBox
           sx={{
@@ -500,7 +802,7 @@ export default function Step2PreprocessingOrchestrator({
               Column preprocessing
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Select one or more columns, configure on the right, then apply. Only applied choices are included in the preprocessingConfig.
+              Each list has its own numbering starting from 1. Use ranges per list, apply settings, then select a different range and apply different settings. After applying, selection is cleared automatically.
             </Typography>
             <Typography variant="caption" color="textSecondary">
               Configured columns: {configuredCount}
@@ -513,7 +815,6 @@ export default function Step2PreprocessingOrchestrator({
         </FlexBox>
       </SectionCard>
 
-      {/* Tabs */}
       <SectionCard sx={{ padding: 0 }}>
         <ModeTabs value={mode} onChange={handleModeChange} tabs={tabs} />
       </SectionCard>
@@ -527,7 +828,6 @@ export default function Step2PreprocessingOrchestrator({
             alignItems: "start",
           }}
         >
-          {/* Left: Column multi-select (row UI) */}
           <SectionCard>
             <FlexBox sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
@@ -543,58 +843,189 @@ export default function Step2PreprocessingOrchestrator({
                 label="Search"
                 placeholder="Search columns"
                 value={colSearch}
-                onChange={(e) => setColSearch(e.target.value)}
+                onChange={handleSearchChange}
               />
             </FlexBox>
 
-            <FlexBox sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1 }}>
-              {filteredColumns.map((col) => {
-                const t = columnTypes?.[col];
-                const selected = selectedCols.includes(col);
-                const configured = !!overrides?.[col];
-
-                const kind = isCategoricalType(t) ? "cat" : isNumericType(t) ? "num" : "unk";
-
-                return (
-                  <div
-                    key={col}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => toggleSelected(col)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") toggleSelected(col);
-                    }}
-                    style={{
-                      border: "1px solid rgba(0,0,0,0.10)",
-                      borderRadius: 12,
-                      padding: 12,
-                      cursor: "pointer",
-                      outline: "none",
-                      background: selected ? "rgba(25,118,210,0.08)" : "white",
-                      boxShadow: selected ? "0 0 0 2px rgba(25,118,210,0.15) inset" : "none",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                    }}
-                  >
-                    <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.25, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {col}
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {configured ? "Configured" : "Not configured"}
-                      </Typography>
-                    </FlexBox>
-
-                    <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Badge text={prettyType(t)} kind={kind} />
-                    </FlexBox>
-                  </div>
-                );
-              })}
+            {/* Categorical */}
+            <FlexBox sx={{ mt: 1.25, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Categorical
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {categoricalColumns.length}
+              </Typography>
             </FlexBox>
 
+            <SelectionRangeBar
+              title="Categorical"
+              value={catRange}
+              onChange={handleCatRangeChange}
+              hint={catRangeHint}
+              onAdd={() => {
+                const v = validateRange({ rangeText: catRange, indexToCol: catIndexToCol });
+                setCatRangeHint(v.message);
+                if (!v.ok) return;
+                applyRangeToSelection({
+                  rangeText: catRange,
+                  indexToCol: catIndexToCol,
+                  allowedCols: categoricalColumns,
+                  mode: "add",
+                });
+              }}
+              onReplace={() => {
+                const v = validateRange({ rangeText: catRange, indexToCol: catIndexToCol });
+                setCatRangeHint(v.message);
+                if (!v.ok) return;
+                applyRangeToSelection({
+                  rangeText: catRange,
+                  indexToCol: catIndexToCol,
+                  allowedCols: categoricalColumns,
+                  mode: "replace",
+                });
+              }}
+              onRemove={() => {
+                const v = validateRange({ rangeText: catRange, indexToCol: catIndexToCol });
+                setCatRangeHint(v.message);
+                if (!v.ok) return;
+                applyRangeToSelection({
+                  rangeText: catRange,
+                  indexToCol: catIndexToCol,
+                  allowedCols: categoricalColumns,
+                  mode: "remove",
+                });
+              }}
+            />
+
+            <FlexBox sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1, overflowY: "auto", maxHeight: 300 }}>
+              {catRows.length ? (
+                catRows.map(renderColumnRow)
+              ) : (
+                <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+                  No categorical columns match the search.
+                </Typography>
+              )}
+            </FlexBox>
+
+            {/* Numeric */}
+            <FlexBox sx={{ mt: 2, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Numeric
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {numericColumns.length}
+              </Typography>
+            </FlexBox>
+
+            <SelectionRangeBar
+              title="Numeric"
+              value={numRange}
+              onChange={handleNumRangeChange}
+              hint={numRangeHint}
+              onAdd={() => {
+                const v = validateRange({ rangeText: numRange, indexToCol: numIndexToCol });
+                setNumRangeHint(v.message);
+                if (!v.ok) return;
+                applyRangeToSelection({
+                  rangeText: numRange,
+                  indexToCol: numIndexToCol,
+                  allowedCols: numericColumns,
+                  mode: "add",
+                });
+              }}
+              onReplace={() => {
+                const v = validateRange({ rangeText: numRange, indexToCol: numIndexToCol });
+                setNumRangeHint(v.message);
+                if (!v.ok) return;
+                applyRangeToSelection({
+                  rangeText: numRange,
+                  indexToCol: numIndexToCol,
+                  allowedCols: numericColumns,
+                  mode: "replace",
+                });
+              }}
+              onRemove={() => {
+                const v = validateRange({ rangeText: numRange, indexToCol: numIndexToCol });
+                setNumRangeHint(v.message);
+                if (!v.ok) return;
+                applyRangeToSelection({
+                  rangeText: numRange,
+                  indexToCol: numIndexToCol,
+                  allowedCols: numericColumns,
+                  mode: "remove",
+                });
+              }}
+            />
+
+            <FlexBox sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1, overflowY: "auto", maxHeight: 300 }}>
+              {numRows.length ? (
+                numRows.map(renderColumnRow)
+              ) : (
+                <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+                  No numeric columns match the search.
+                </Typography>
+              )}
+            </FlexBox>
+
+            {/* Unknown */}
+            {unknownColumns.length > 0 && (
+              <>
+                <FlexBox sx={{ mt: 2, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                    Unknown
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    {unknownColumns.length}
+                  </Typography>
+                </FlexBox>
+
+                <SelectionRangeBar
+                  title="Unknown"
+                  value={unkRange}
+                  onChange={handleUnkRangeChange}
+                  hint={unkRangeHint}
+                  onAdd={() => {
+                    const v = validateRange({ rangeText: unkRange, indexToCol: unkIndexToCol });
+                    setUnkRangeHint(v.message);
+                    if (!v.ok) return;
+                    applyRangeToSelection({
+                      rangeText: unkRange,
+                      indexToCol: unkIndexToCol,
+                      allowedCols: unknownColumns,
+                      mode: "add",
+                    });
+                  }}
+                  onReplace={() => {
+                    const v = validateRange({ rangeText: unkRange, indexToCol: unkIndexToCol });
+                    setUnkRangeHint(v.message);
+                    if (!v.ok) return;
+                    applyRangeToSelection({
+                      rangeText: unkRange,
+                      indexToCol: unkIndexToCol,
+                      allowedCols: unknownColumns,
+                      mode: "replace",
+                    });
+                  }}
+                  onRemove={() => {
+                    const v = validateRange({ rangeText: unkRange, indexToCol: unkIndexToCol });
+                    setUnkRangeHint(v.message);
+                    if (!v.ok) return;
+                    applyRangeToSelection({
+                      rangeText: unkRange,
+                      indexToCol: unkIndexToCol,
+                      allowedCols: unknownColumns,
+                      mode: "remove",
+                    });
+                  }}
+                />
+
+                <FlexBox sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1, overflowY: "auto", maxHeight: 300 }}>
+                  {unkRows.map(renderColumnRow)}
+                </FlexBox>
+              </>
+            )}
+
+            {/* Applied summary */}
             {appliedList.length > 0 && (
               <FlexBox
                 sx={{
@@ -636,7 +1067,11 @@ export default function Step2PreprocessingOrchestrator({
                     </FlexBox>
 
                     <FlexBox sx={{ mt: 1, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                      {(item.labels || []).length ? item.labels.map((lbl) => <Chip key={lbl} text={lbl} />) : <Chip text="No actions" />}
+                      {(item.labels || []).length ? (
+                        item.labels.map((lbl) => <Chip key={lbl} text={lbl} />)
+                      ) : (
+                        <Chip text="No actions" />
+                      )}
                     </FlexBox>
                   </div>
                 ))}
@@ -644,7 +1079,7 @@ export default function Step2PreprocessingOrchestrator({
             )}
           </SectionCard>
 
-          {/* Right: friendly configuration panel (contextual) */}
+          {/* Right: config */}
           <SectionCard>
             <FlexBox sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
@@ -657,11 +1092,11 @@ export default function Step2PreprocessingOrchestrator({
 
             <FlexBox sx={{ mt: 1 }}>
               <Typography variant="caption" color="textSecondary">
-                Only compatible options are shown for the current selection.
+                After you click “Apply to selected”, the selection is cleared automatically.
               </Typography>
             </FlexBox>
 
-            {/* CATEGORICAL OPTIONS */}
+            {/* Categorical */}
             {selectedSummary.hasCat && (
               <FlexBox
                 sx={{
@@ -705,14 +1140,17 @@ export default function Step2PreprocessingOrchestrator({
                   />
                 </FlexBox>
 
-                {/* Missing categoricals */}
                 {catMissingEnabled && (
                   <FlexBox sx={{ mt: 1.25, display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
                     <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
                       <Typography variant="caption" color="textSecondary">
                         Missing method
                       </Typography>
-                      <select value={catMissingMethod} onChange={(e) => setCatMissingMethod(e.target.value)} style={{ padding: 10, borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)" }}>
+                      <select
+                        value={catMissingMethod}
+                        onChange={(e) => setCatMissingMethod(e.target.value)}
+                        style={{ padding: 10, borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)" }}
+                      >
                         <option value="categorical_unknown">Fill with unknown</option>
                         <option value="categorical_mode">Fill with mode</option>
                       </select>
@@ -721,38 +1159,36 @@ export default function Step2PreprocessingOrchestrator({
                     <InputFieldWithLabel
                       label="unknownLevel"
                       value={unknownLevel}
-                      onChange={(e) => setUnknownLevel(e.target.value)}
+                      onChange={handleUnknownLevelChange}
                       helperText="Used only for “Fill with unknown”"
                       disabled={catMissingMethod !== "categorical_unknown"}
                     />
                   </FlexBox>
                 )}
 
-                {/* Reduce */}
                 {reduceEnabled && (
                   <FlexBox sx={{ mt: 1.25, display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
                     <InputFieldWithLabel
                       label="rare_prop_threshold"
                       value={rarePropThreshold}
-                      onChange={(e) => setRarePropThreshold(e.target.value)}
+                      onChange={handleRarePropThresholdChange}
                       helperText="Example: 0.01 (1%)"
                     />
                     <InputFieldWithLabel
                       label="high_cardinality_threshold"
                       value={highCardThreshold}
-                      onChange={(e) => setHighCardThreshold(e.target.value)}
+                      onChange={handleHighCardThresholdChange}
                       helperText="Example: 50"
                     />
                   </FlexBox>
                 )}
 
-                {/* Encoding */}
                 {encodingEnabled && (
                   <FlexBox sx={{ mt: 1.25 }}>
                     <InputFieldWithLabel
                       label="one_hot_max_levels"
                       value={oneHotMaxLevels}
-                      onChange={(e) => setOneHotMaxLevels(e.target.value)}
+                      onChange={handleOneHotMaxLevelsChange}
                       helperText="Up to this many unique levels → one-hot; otherwise label+freq."
                     />
                   </FlexBox>
@@ -760,7 +1196,7 @@ export default function Step2PreprocessingOrchestrator({
               </FlexBox>
             )}
 
-            {/* NUMERIC OPTIONS */}
+            {/* Numeric */}
             {selectedSummary.hasNum && (
               <FlexBox
                 sx={{
@@ -798,7 +1234,11 @@ export default function Step2PreprocessingOrchestrator({
                       <Typography variant="caption" color="textSecondary">
                         Imputation method
                       </Typography>
-                      <select value={numMissingMethod} onChange={(e) => setNumMissingMethod(e.target.value)} style={{ padding: 10, borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)" }}>
+                      <select
+                        value={numMissingMethod}
+                        onChange={(e) => setNumMissingMethod(e.target.value)}
+                        style={{ padding: 10, borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)" }}
+                      >
                         <option value="numeric_median">Median</option>
                         <option value="numeric_mean">Mean</option>
                         <option value="numeric_constant">Constant</option>
@@ -808,7 +1248,7 @@ export default function Step2PreprocessingOrchestrator({
                     <InputFieldWithLabel
                       label="constant value"
                       value={numConstant}
-                      onChange={(e) => setNumConstant(e.target.value)}
+                      onChange={handleNumConstantChange}
                       helperText="Used only for Constant"
                       disabled={numMissingMethod !== "numeric_constant"}
                     />
@@ -820,7 +1260,11 @@ export default function Step2PreprocessingOrchestrator({
                     <Typography variant="caption" color="textSecondary">
                       Scaling method
                     </Typography>
-                    <select value={scalingMethod} onChange={(e) => setScalingMethod(e.target.value)} style={{ padding: 10, borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)" }}>
+                    <select
+                      value={scalingMethod}
+                      onChange={(e) => setScalingMethod(e.target.value)}
+                      style={{ padding: 10, borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)" }}
+                    >
                       <option value="zscore">Z-score</option>
                       <option value="minmax">Min-max</option>
                       <option value="none">None</option>
@@ -830,10 +1274,9 @@ export default function Step2PreprocessingOrchestrator({
               </FlexBox>
             )}
 
-            {/* Apply */}
             <FlexBox sx={{ mt: 2, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
               <Typography variant="caption" color="textSecondary">
-                Tip: Select multiple columns to apply the same preprocessing as a group.
+                Tip: After applying, you can immediately select a new range and apply different settings.
               </Typography>
 
               <Button variant="contained" color="primary" onClick={applyToSelected} disabled={!selectedCols?.length}>
@@ -844,7 +1287,6 @@ export default function Step2PreprocessingOrchestrator({
         </FlexBox>
       )}
 
-      {/* Config editor */}
       {mode === "config" && (
         <PreprocessingConfigEditorPanel
           liveConfig={liveConfig}
@@ -890,3 +1332,13 @@ Step2PreprocessingOrchestrator.defaultProps = {
   previewRows: [],
   filename: "dataset.csv",
 };
+
+/**
+ * Small safeguard helper used above (prevents accidental NaN in defaults).
+ * Kept outside component to avoid re-creation each render.
+ */
+function oneHotMaxMaxLevelsSafe(v) {
+  const n = Number(v);
+  if (Number.isFinite(n)) return n;
+  return 10;
+}
