@@ -1,13 +1,10 @@
 // src/components/organisms/DatasetVisualizationPanel/index.jsx
-
 import React, { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import PropTypes from "prop-types";
 
 import FlexBox from "../../atoms/FlexBox";
 import Typography from "../../atoms/CustomTypography";
 import ChartCard from "../../molecules/ChartCard";
-import CorrelationHeatmap from "../../molecules/CorrelationHeatmap";
-import { HistogramChart, CategoryBarChart, ScatterPlot } from "../../molecules/BasicCharts";
 
 import {
   getNumericColumnsFromRows,
@@ -17,15 +14,15 @@ import {
   buildScatter,
 } from "../../../lib/chartData";
 
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
-import TableContainer from "@mui/material/TableContainer";
+import { EHistogram, EBar, EScatter, EHeatmap, EWordCloud } from "../../molecules/Echarts";
+
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
 import Chip from "@mui/material/Chip";
+import Alert from "@mui/material/Alert";
+import Skeleton from "@mui/material/Skeleton";
+import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 
 import FormGroup from "@mui/material/FormGroup";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -41,26 +38,25 @@ import AccordionSummary from "@mui/material/AccordionSummary";
 import AccordionDetails from "@mui/material/AccordionDetails";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
-// NEW: insights API call
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import TableContainer from "@mui/material/TableContainer";
+
+import Autocomplete from "@mui/material/Autocomplete";
+import TextField from "@mui/material/TextField";
+
+import RefreshIcon from "@mui/icons-material/Refresh";
+import TuneIcon from "@mui/icons-material/Tune";
+
 import { generateDatasetInsights } from "../../../services/modules/insights.api";
 
 /* ------------------------- helpers ------------------------- */
 
-function toActionCountSeries(columnActions) {
-  if (!columnActions || typeof columnActions !== "object") return [];
-  const out = [];
-  Object.entries(columnActions).forEach(([col, actions]) => {
-    const arr = Array.isArray(actions) ? actions : actions ? [actions] : [];
-    out.push({ label: col, value: arr.length });
-  });
-  out.sort((a, b) => (b.value || 0) - (a.value || 0));
-  return out;
-}
-
-function makeInsightsStorageKey({ datasetId, jobId }) {
-  const d = datasetId || "na";
-  const j = jobId || "na";
-  return `ai_insights:v1:${d}:${j}`;
+function isPlainObject(x) {
+  return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
 function safeSessionGet(key) {
@@ -77,44 +73,44 @@ function safeSessionSet(key, value) {
   try {
     sessionStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // ignore quota/security errors
+    // ignore
   }
 }
 
-function isPlainObject(x) {
-  return !!x && typeof x === "object" && !Array.isArray(x);
+function makeInsightsStorageKey({ datasetId, jobId }) {
+  const d = datasetId || "na";
+  const j = jobId || "na";
+  return `ai_insights:v1:${d}:${j}`;
 }
 
-/**
- * Normalize correlation metadata to a multi-analysis internal shape.
- * Supports:
- * - Legacy single result: { used_columns, matrix, top_pairs, ... }
- * - Multi envelope (new): { version:"1.0", analyses:[{id,name,result|enabled|message}, ...], summary, primaryId }
- */
+function makePrefsStorageKey({ datasetId, jobId }) {
+  const d = datasetId || "na";
+  const j = jobId || "na";
+  return `viz_prefs:v3:${d}:${j}`;
+}
+
+function toActionCountSeries(columnActions) {
+  if (!columnActions || typeof columnActions !== "object") return [];
+  const out = [];
+  Object.entries(columnActions).forEach(([col, actions]) => {
+    const arr = Array.isArray(actions) ? actions : actions ? [actions] : [];
+    out.push({ label: col, value: arr.length });
+  });
+  out.sort((a, b) => (b.value || 0) - (a.value || 0));
+  return out;
+}
+
 function normalizeCorrelationMeta(corr) {
   if (!corr) return { mode: "none", analyses: [] };
 
-  // Multi envelope from the production-grade R fix:
   if (isPlainObject(corr) && corr.version === "1.0" && Array.isArray(corr.analyses)) {
     const analyses = corr.analyses
       .map((a, idx) => {
         const id = String(a?.id || `analysis_${idx + 1}`);
         const name = String(a?.name || `Correlation ${idx + 1}`);
-
-        // In multi-run output, a may be:
-        // - { id, name, result: { ...legacyResult } }
-        // - or { id, name, enabled:false, message:"Skipped" }
         const result = a?.result || null;
-
-        // Some outputs may keep fields at top-level (defensive)
         const effective = result || a;
-
-        return {
-          id,
-          name,
-          raw: a,
-          result: effective && isPlainObject(effective) ? effective : null,
-        };
+        return { id, name, raw: a, result: effective && isPlainObject(effective) ? effective : null };
       })
       .filter(Boolean);
 
@@ -126,19 +122,11 @@ function normalizeCorrelationMeta(corr) {
     };
   }
 
-  // Legacy single result
   if (isPlainObject(corr)) {
     return {
       mode: "single",
       primaryId: "primary",
-      analyses: [
-        {
-          id: "primary",
-          name: "Correlation",
-          raw: corr,
-          result: corr,
-        },
-      ],
+      analyses: [{ id: "primary", name: "Correlation", raw: corr, result: corr }],
     };
   }
 
@@ -162,6 +150,114 @@ function safeCorrelationMatrix(r) {
   return r.matrix || null;
 }
 
+function SectionState({ loading, error, empty, emptyText }) {
+  if (loading) {
+    return (
+      <Box sx={{ width: "100%" }}>
+        <Skeleton variant="rounded" height={22} sx={{ mb: 1 }} />
+        <Skeleton variant="rounded" height={240} />
+      </Box>
+    );
+  }
+  if (error) return <Alert severity="error">{error}</Alert>;
+  if (empty) return <Alert severity="info">{emptyText || "No data available."}</Alert>;
+  return null;
+}
+
+SectionState.propTypes = {
+  loading: PropTypes.bool,
+  error: PropTypes.string,
+  empty: PropTypes.bool,
+  emptyText: PropTypes.string,
+};
+
+/* ------------------------- word charts helpers ------------------------- */
+
+const DEFAULT_STOPWORDS = new Set([
+  "a","an","and","are","as","at","be","by","for","from","has","have","he","her","hers","him","his",
+  "i","in","is","it","its","me","my","no","not","of","on","or","our","ours","she","that","the","their",
+  "them","then","there","these","they","this","those","to","us","was","we","were","with","will","would",
+  "you","your","yours"
+]);
+
+function isNumericString(s) {
+  const str = String(s ?? "").trim();
+  if (!str) return false;
+  return /^-?\d+(\.\d+)?$/.test(str);
+}
+
+function tokenizeText(value) {
+  if (value == null) return [];
+  const s = String(value).toLowerCase();
+  return s
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function buildWordCounts(rows, column, { maxWords = 80 } = {}) {
+  const counts = new Map();
+
+  const addToken = (tok) => {
+    if (!tok) return;
+    if (tok.length < 3) return;
+    if (DEFAULT_STOPWORDS.has(tok)) return;
+    counts.set(tok, (counts.get(tok) || 0) + 1);
+  };
+
+  (rows || []).forEach((r) => {
+    if (!r || typeof r !== "object") return;
+
+    if (column === "__ALL_TEXT__") {
+      Object.values(r).forEach((v) => {
+        const str = String(v ?? "").trim();
+        if (!str) return;
+        if (isNumericString(str)) return;
+        tokenizeText(str).forEach(addToken);
+      });
+      return;
+    }
+
+    const str = String(r[column] ?? "").trim();
+    if (!str) return;
+    if (isNumericString(str)) return;
+    tokenizeText(str).forEach(addToken);
+  });
+
+  return Array.from(counts.entries())
+    .map(([word, count]) => ({ word, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, maxWords);
+}
+
+function toBarSeriesFromWords(words, topN = 20) {
+  return (words || []).slice(0, topN).map((w) => ({ label: w.word, value: w.count }));
+}
+
+/* ------------------------- compact styling tokens ------------------------- */
+
+const leftTitleVariant = "subtitle2"; // smaller than body1/h6
+const leftBodyVariant = "caption"; // compact text
+const leftChipSize = "small";
+
+const compactAccordionSx = {
+  "&:before": { display: "none" },
+  boxShadow: "none",
+  borderRadius: 1.5,
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const compactSummarySx = {
+  minHeight: 40,
+  "& .MuiAccordionSummary-content": { my: 0.5 },
+};
+
+const compactSwitchSx = {
+  "& .MuiSwitch-switchBase": { p: 0.5 },
+  "& .MuiSwitch-thumb": { width: 14, height: 14 },
+  "& .MuiSwitch-track": { borderRadius: 999 },
+};
+
 /* ------------------------- component ------------------------- */
 
 const DatasetVisualizationPanel = ({
@@ -171,7 +267,6 @@ const DatasetVisualizationPanel = ({
   processedRows,
   metadata,
   aiInferenceEnabled,
-
   datasetId,
   jobId,
   filename,
@@ -181,28 +276,13 @@ const DatasetVisualizationPanel = ({
   processedColumnsCount,
 }) => {
   const showLoading = loading || jobRunning;
-
   const previewNote = "Charts are computed from preview rows only (client-side).";
-
-  /* -------------------------
-   * Dataset-derived columns
-   * ------------------------- */
 
   const numericColsOriginal = useMemo(() => getNumericColumnsFromRows(originalRows), [originalRows]);
   const numericColsProcessed = useMemo(() => getNumericColumnsFromRows(processedRows), [processedRows]);
 
-  const categoricalColsOriginal = useMemo(
-    () => getCategoricalColumnsFromRows(originalRows, 50),
-    [originalRows]
-  );
-  const categoricalColsProcessed = useMemo(
-    () => getCategoricalColumnsFromRows(processedRows, 50),
-    [processedRows]
-  );
-
-  /* -------------------------
-   * Metadata-driven panes
-   * ------------------------- */
+  const categoricalColsOriginal = useMemo(() => getCategoricalColumnsFromRows(originalRows, 50), [originalRows]);
+  const categoricalColsProcessed = useMemo(() => getCategoricalColumnsFromRows(processedRows, 50), [processedRows]);
 
   const scalingStats = metadata?.scaling_stats || {};
   const columnActions = metadata?.column_actions || {};
@@ -220,13 +300,8 @@ const DatasetVisualizationPanel = ({
     });
   }, [scalingStats]);
 
-  /* -------------------------
-   * Correlation (single + multi)
-   * ------------------------- */
-
   const corrNormalized = useMemo(() => normalizeCorrelationMeta(metadata?.correlation || null), [metadata?.correlation]);
 
-  // For UI control: which analysis is "active" for pair/scatter selection (default primary)
   const [activeCorrAnalysisId, setActiveCorrAnalysisId] = useState(null);
 
   useEffect(() => {
@@ -245,9 +320,9 @@ const DatasetVisualizationPanel = ({
 
   const activeCorrResult = activeCorrAnalysis?.result || null;
   const activeCorrPairs = useMemo(() => safePairsFromCorrelationResult(activeCorrResult), [activeCorrResult]);
+
   const activeTopPair = useMemo(() => {
     if (activeCorrPairs?.length) return activeCorrPairs[0];
-    // fallback: use processed numeric columns if possible
     if ((numericColsProcessed || []).length >= 2) return { col1: numericColsProcessed[0], col2: numericColsProcessed[1], r: null };
     return null;
   }, [activeCorrPairs, numericColsProcessed]);
@@ -255,7 +330,6 @@ const DatasetVisualizationPanel = ({
   const [scatterPairIndex, setScatterPairIndex] = useState(0);
 
   useEffect(() => {
-    // Reset pair index when analysis changes
     setScatterPairIndex(0);
   }, [activeCorrAnalysisId]);
 
@@ -270,48 +344,64 @@ const DatasetVisualizationPanel = ({
     return buildScatter(processedRows, scatterPair.col1, scatterPair.col2);
   }, [processedRows, scatterPair]);
 
-  /* -------------------------
-   * User-controlled visualization selection
-   * ------------------------- */
+  const prefsKey = useMemo(() => makePrefsStorageKey({ datasetId, jobId }), [datasetId, jobId]);
 
-  // Defaults: show a balanced set without overwhelming the user.
-  const [vizPrefs, setVizPrefs] = useState(() => ({
-    showPreprocessingImpact: true,
-    showCorrelation: true,
-    showCorrelationPairs: true,
-    showCorrelationScatter: true,
-    showDistributions: true,
-    showCategorical: true,
-    showScalingStats: true,
-    showAiInference: false, // controlled by aiInferenceEnabled anyway
-  }));
+  const defaultPrefs = useMemo(
+    () => ({
+      showAiInference: aiInferenceEnabled === true,
+      showCorrelation: true,
+      showCorrelationScatter: true,
+      showDistributions: true,
+      showCategorical: true,
+      showWordCharts: true,
+      showScalingStats: true,
+      showPreprocessingImpact: true,
+
+      expandCustomize: true,
+      expandAi: true,
+      expandCorrelation: true,
+      expandScatter: false,
+      expandDistributions: true,
+      expandCategorical: true,
+      expandWordCharts: false,
+      expandScaling: false,
+      expandPreprocess: false,
+    }),
+    [aiInferenceEnabled]
+  );
+
+  const [vizPrefs, setVizPrefs] = useState(() => {
+    const cached = safeSessionGet(prefsKey);
+    return { ...defaultPrefs, ...(cached || {}) };
+  });
 
   useEffect(() => {
-    // Keep preference in sync with external AI toggle (page-level)
     setVizPrefs((p) => ({ ...p, showAiInference: aiInferenceEnabled === true }));
   }, [aiInferenceEnabled]);
+
+  useEffect(() => {
+    safeSessionSet(prefsKey, vizPrefs);
+  }, [prefsKey, vizPrefs]);
 
   const updatePref = useCallback((key) => {
     setVizPrefs((p) => ({ ...p, [key]: !p[key] }));
   }, []);
 
-  // Dataset control per chart group
+  const resetPrefs = useCallback(() => {
+    setVizPrefs(defaultPrefs);
+    safeSessionSet(prefsKey, defaultPrefs);
+  }, [defaultPrefs, prefsKey]);
+
   const [distDatasetMode, setDistDatasetMode] = useState("both"); // original | processed | both
   const [catDatasetMode, setCatDatasetMode] = useState("original"); // original | processed
-  const [corrDatasetMode] = useState("processed"); // correlation should reflect processed_df from backend; keep fixed
-
-  /* -------------------------
-   * Distributions: user selection
-   * ------------------------- */
+  const corrDatasetMode = "processed";
 
   const [histColA, setHistColA] = useState("");
   const [histColB, setHistColB] = useState("");
 
   useEffect(() => {
-    // Initialize histogram targets sensibly based on processed numeric columns
     const cols = numericColsProcessed || [];
     if (!cols.length) return;
-
     setHistColA((prev) => (prev && cols.includes(prev) ? prev : cols[0]));
     setHistColB((prev) => {
       if (prev && cols.includes(prev)) return prev;
@@ -343,10 +433,6 @@ const DatasetVisualizationPanel = ({
     return out;
   }, [processedRows, histTargets]);
 
-  /* -------------------------
-   * Categorical distribution: user selection
-   * ------------------------- */
-
   const [catCol, setCatCol] = useState("");
 
   useEffect(() => {
@@ -361,37 +447,60 @@ const DatasetVisualizationPanel = ({
     return buildCategoryCounts(rows, catCol, 12);
   }, [catDatasetMode, processedRows, originalRows, catCol]);
 
-  /* -------------------------
-   * AI Insights state + cache
-   * ------------------------- */
+  // Word charts
+  const [wordDatasetMode, setWordDatasetMode] = useState("processed"); // original | processed | both
+  const [wordSource, setWordSource] = useState("__ALL_TEXT__");
 
+  const wordSourceOptions = useMemo(() => {
+    const cols = Array.from(
+      new Set(["__ALL_TEXT__", ...(categoricalColsProcessed || []), ...(categoricalColsOriginal || [])])
+    );
+    return cols.map((c) => ({ value: c, label: c === "__ALL_TEXT__" ? "All text-like fields (combined)" : c }));
+  }, [categoricalColsProcessed, categoricalColsOriginal]);
+
+  useEffect(() => {
+    const allowed = new Set(wordSourceOptions.map((o) => o.value));
+    if (!allowed.has(wordSource)) setWordSource("__ALL_TEXT__");
+  }, [wordSourceOptions, wordSource]);
+
+  const wordRows = useMemo(() => {
+    if (wordDatasetMode === "original") return originalRows;
+    if (wordDatasetMode === "processed") return processedRows;
+    return [...(originalRows || []), ...(processedRows || [])];
+  }, [wordDatasetMode, originalRows, processedRows]);
+
+  const wordCounts = useMemo(() => buildWordCounts(wordRows, wordSource, { maxWords: 80 }), [wordRows, wordSource]);
+  const topTermsBar = useMemo(() => toBarSeriesFromWords(wordCounts, 20), [wordCounts]);
+
+  // Insights
   const [insights, setInsights] = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState(null);
 
   const insightsCacheRef = useRef(new Map());
-  const storageKey = useMemo(() => makeInsightsStorageKey({ datasetId, jobId }), [datasetId, jobId]);
+  const insightsKey = useMemo(() => makeInsightsStorageKey({ datasetId, jobId }), [datasetId, jobId]);
 
-  useEffect(() => {
-    if (!aiInferenceEnabled) return;
-    if (loading || jobRunning) return;
+  const fetchInsights = useCallback(
+    async ({ bypassCache = false } = {}) => {
+      if (!aiInferenceEnabled) return;
+      if (loading || jobRunning) return;
 
-    const memCached = insightsCacheRef.current.get(storageKey);
-    if (memCached) {
-      setInsights(memCached);
-      setInsightsError(null);
-      return;
-    }
+      if (!bypassCache) {
+        const memCached = insightsCacheRef.current.get(insightsKey);
+        if (memCached) {
+          setInsights(memCached);
+          setInsightsError(null);
+          return;
+        }
+        const sessionCached = safeSessionGet(insightsKey);
+        if (sessionCached) {
+          insightsCacheRef.current.set(insightsKey, sessionCached);
+          setInsights(sessionCached);
+          setInsightsError(null);
+          return;
+        }
+      }
 
-    const sessionCached = safeSessionGet(storageKey);
-    if (sessionCached) {
-      insightsCacheRef.current.set(storageKey, sessionCached);
-      setInsights(sessionCached);
-      setInsightsError(null);
-      return;
-    }
-
-    (async () => {
       try {
         setInsightsLoading(true);
         setInsightsError(null);
@@ -407,74 +516,88 @@ const DatasetVisualizationPanel = ({
 
         const res = await generateDatasetInsights(payload);
 
-        insightsCacheRef.current.set(storageKey, res);
-        safeSessionSet(storageKey, res);
-
+        insightsCacheRef.current.set(insightsKey, res);
+        safeSessionSet(insightsKey, res);
         setInsights(res);
       } catch (err) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          "Failed to generate AI insights";
+        const msg = err?.response?.data?.message || err?.message || "Failed to generate AI insights";
         setInsightsError(msg);
         setInsights(null);
       } finally {
         setInsightsLoading(false);
       }
-    })();
+    },
+    [
+      aiInferenceEnabled,
+      loading,
+      jobRunning,
+      insightsKey,
+      filename,
+      rawData,
+      processedData,
+      processedRowsCount,
+      processedColumnsCount,
+      metadata,
+    ]
+  );
+
+  useEffect(() => {
+    fetchInsights({ bypassCache: false });
+  }, [fetchInsights]);
+
+  const datasetHeader = useMemo(() => {
+    const previewOriginal = Array.isArray(originalRows) ? originalRows.length : 0;
+    const previewProcessed = Array.isArray(processedRows) ? processedRows.length : 0;
+
+    return {
+      previewOriginal,
+      previewProcessed,
+      procRows: typeof processedRowsCount === "number" ? processedRowsCount : null,
+      procCols: typeof processedColumnsCount === "number" ? processedColumnsCount : null,
+      numOrig: numericColsOriginal.length,
+      numProc: numericColsProcessed.length,
+      catOrig: categoricalColsOriginal.length,
+      catProc: categoricalColsProcessed.length,
+    };
   }, [
-    aiInferenceEnabled,
-    loading,
-    jobRunning,
-    storageKey,
-    filename,
-    rawData,
-    processedData,
+    originalRows,
+    processedRows,
     processedRowsCount,
     processedColumnsCount,
-    metadata,
+    numericColsOriginal.length,
+    numericColsProcessed.length,
+    categoricalColsOriginal.length,
+    categoricalColsProcessed.length,
   ]);
 
-  /* -------------------------
-   * Render helpers
-   * ------------------------- */
+  const numericOptions = useMemo(() => {
+    const cols = numericColsProcessed.length ? numericColsProcessed : numericColsOriginal;
+    return cols.map((c) => ({ label: c }));
+  }, [numericColsProcessed, numericColsOriginal]);
 
-  const renderCorrelationCards = useCallback(() => {
+  const topPairsForUi = useMemo(() => {
+    const src = (activeCorrPairs?.length ? activeCorrPairs : [scatterPair]).slice(0, 10);
+    return src
+      .filter(Boolean)
+      .map((p, idx) => ({
+        idx,
+        label: `${p.col1} vs ${p.col2}${typeof p.r === "number" ? ` (r=${p.r.toFixed(3)})` : ""}`,
+      }));
+  }, [activeCorrPairs, scatterPair]);
+
+  const renderCorrelation = useCallback(() => {
     if (!corrNormalized || corrNormalized.mode === "none" || !corrNormalized.analyses.length) {
-      return (
-        <ChartCard
-          title="Correlation"
-          subtitle="Pairwise correlation for requested numeric columns."
-          loading={showLoading}
-          footer={previewNote}
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          <Typography variant="body2" color="textSecondary">
-            Correlation was not requested for this job.
-          </Typography>
-        </ChartCard>
-      );
+      return <Alert severity="info">Correlation was not requested for this job.</Alert>;
     }
 
     return (
-      <ChartCard
-        title="Correlation analyses"
-        subtitle={
-          corrNormalized.mode === "multi"
-            ? "Multiple correlation analyses computed by the backend."
-            : "Correlation analysis computed by the backend."
-        }
-        loading={showLoading}
-        footer={previewNote}
-        sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-      >
-        {/* Analysis selector */}
-        <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+      <Box sx={{ width: "100%" }}>
+        <FlexBox sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 900 }}>
             Active analysis
           </Typography>
 
-          <FormControl size="small" sx={{ minWidth: 240 }}>
+          <FormControl size="small" sx={{ minWidth: 260 }}>
             <InputLabel id="corr-analysis-select-label">Correlation analysis</InputLabel>
             <Select
               labelId="corr-analysis-select-label"
@@ -490,30 +613,26 @@ const DatasetVisualizationPanel = ({
             </Select>
           </FormControl>
 
-          {corrNormalized.mode === "multi" && (
+          {corrNormalized.mode === "multi" && corrNormalized.summary && (
             <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-              {corrNormalized.summary && (
-                <>
-                  <Chip size="small" label={`Total: ${corrNormalized.summary.total ?? corrNormalized.analyses.length}`} />
-                  <Chip size="small" label={`Ran: ${corrNormalized.summary.ran ?? "—"}`} />
-                </>
-              )}
+              <Chip size="small" label={`Total: ${corrNormalized.summary.total ?? corrNormalized.analyses.length}`} />
+              <Chip size="small" label={`Ran: ${corrNormalized.summary.ran ?? "—"}`} />
             </FlexBox>
           )}
         </FlexBox>
 
         <Divider sx={{ mb: 1.5 }} />
 
-        {/* One accordion per analysis to support multiple matrices */}
         <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
           {corrNormalized.analyses.map((a) => {
             const r = a.result || null;
-
-            // Some multi-run entries may be "Skipped: disabled"
             const isExplicitSkip = isPlainObject(a.raw) && a.raw.enabled === false;
-
             const err = r?.error ? String(r.error) : null;
-            const message = r?.message ? String(r.message) : isExplicitSkip ? String(a.raw?.message || "Skipped.") : null;
+            const message = r?.message
+              ? String(r.message)
+              : isExplicitSkip
+              ? String(a.raw?.message || "Skipped.")
+              : null;
 
             const cols = safeColumnsFromCorrelationResult(r);
             const matrix = safeCorrelationMatrix(r);
@@ -522,16 +641,14 @@ const DatasetVisualizationPanel = ({
             const isActive = a.id === activeCorrAnalysisId;
 
             return (
-              <Accordion key={a.id} defaultExpanded={isActive} disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Accordion key={a.id} defaultExpanded={isActive} disableGutters sx={compactAccordionSx}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
                   <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                    <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
                       {a.name}
                     </Typography>
 
-                    {a.id === corrNormalized.primaryId && (
-                      <Chip size="small" label="Primary" variant="outlined" />
-                    )}
+                    {a.id === corrNormalized.primaryId && <Chip size="small" label="Primary" variant="outlined" />}
 
                     {err ? (
                       <Chip size="small" color="error" label="Error" />
@@ -548,31 +665,28 @@ const DatasetVisualizationPanel = ({
 
                 <AccordionDetails>
                   {err ? (
-                    <Typography variant="body2" color="error">
-                      Correlation failed: {err}
-                    </Typography>
+                    <Alert severity="error">Correlation failed: {err}</Alert>
                   ) : message && !matrix ? (
-                    <Typography variant="body2" color="textSecondary">
-                      {message}
-                    </Typography>
+                    <Alert severity="info">{message}</Alert>
                   ) : !matrix ? (
-                    <Typography variant="body2" color="textSecondary">
-                      Correlation matrix is not available.
-                    </Typography>
+                    <Alert severity="info">Correlation matrix is not available.</Alert>
                   ) : (
-                    <CorrelationHeatmap columns={cols} matrix={matrix} />
+                    <EHeatmap
+                      title="Correlation heatmap"
+                      columns={cols}
+                      matrix={matrix}
+                      filename={`${filename || "dataset"}_${a.id}_correlation_heatmap`}
+                      showDownload
+                    />
                   )}
 
-                  {/* Top pairs table for this analysis */}
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 800, mb: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 900, mb: 1 }}>
                       Top correlation pairs
                     </Typography>
 
                     {!pairs.length ? (
-                      <Typography variant="body2" color="textSecondary">
-                        No correlation pairs available (not enough usable numeric columns or all constant).
-                      </Typography>
+                      <Alert severity="info">No correlation pairs available (not enough usable numeric columns or all constant).</Alert>
                     ) : (
                       <TableContainer
                         sx={{
@@ -584,10 +698,10 @@ const DatasetVisualizationPanel = ({
                         <Table size="small" stickyHeader>
                           <TableHead>
                             <TableRow>
-                              <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Column 1</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Column 2</TableCell>
-                              <TableCell sx={{ fontWeight: 700, textAlign: "right" }}>r</TableCell>
+                              <TableCell sx={{ fontWeight: 900 }}>#</TableCell>
+                              <TableCell sx={{ fontWeight: 900 }}>Column 1</TableCell>
+                              <TableCell sx={{ fontWeight: 900 }}>Column 2</TableCell>
+                              <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>r</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -611,544 +725,668 @@ const DatasetVisualizationPanel = ({
             );
           })}
         </FlexBox>
-      </ChartCard>
+      </Box>
     );
-  }, [corrNormalized, activeCorrAnalysisId, showLoading, previewNote]);
-
-  /* -------------------------
-   * Layout
-   * ------------------------- */
+  }, [corrNormalized, activeCorrAnalysisId, filename]);
 
   return (
     <FlexBox
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+        // 25-75 layout on large screens; stack on mobile
+        gridTemplateColumns: {
+          xs: "1fr",
+          lg: "minmax(280px, 25%) minmax(0, 75%)",
+        },
         gap: { xs: 2, sm: 2.5 },
         width: "100%",
         minWidth: 0,
+        alignItems: "start",
       }}
     >
-      {/* Customize visualizations */}
-      <ChartCard
-        title="Customize visualizations"
-        subtitle="Choose which charts to display. Defaults are enabled for a quick overview."
-        loading={showLoading}
-        sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-      >
-        <Box
+      {/* LEFT: compact settings */}
+      <Box sx={{ position: { lg: "sticky" }, top: { lg: 12 }, zIndex: 1, minWidth: 0 }}>
+        <ChartCard
+          title="Visualization settings"
+          subtitle="Display controls and inputs."
+          loading={showLoading}
+          // Make the whole card feel smaller
           sx={{
-            border: "1px solid rgba(0,0,0,0.08)",
-            borderRadius: 2,
-            p: 1.5,
-            background: "rgba(0,0,0,0.02)",
+            "& .MuiCardContent-root": { p: 1.5 },
           }}
         >
-          <FormGroup row>
-            <FormControlLabel
-              control={<Switch checked={vizPrefs.showPreprocessingImpact} onChange={() => updatePref("showPreprocessingImpact")} />}
-              label="Preprocessing impact"
-            />
-            <FormControlLabel
-              control={<Switch checked={vizPrefs.showCorrelation} onChange={() => updatePref("showCorrelation")} />}
-              label="Correlation matrices"
-            />
-            <FormControlLabel
-              control={<Switch checked={vizPrefs.showCorrelationScatter} onChange={() => updatePref("showCorrelationScatter")} />}
-              label="Scatter (from correlation)"
-            />
-            <FormControlLabel
-              control={<Switch checked={vizPrefs.showDistributions} onChange={() => updatePref("showDistributions")} />}
-              label="Numeric distributions"
-            />
-            <FormControlLabel
-              control={<Switch checked={vizPrefs.showCategorical} onChange={() => updatePref("showCategorical")} />}
-              label="Categorical distribution"
-            />
-            <FormControlLabel
-              control={<Switch checked={vizPrefs.showScalingStats} onChange={() => updatePref("showScalingStats")} />}
-              label="Scaling statistics"
-            />
-          </FormGroup>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1 }}>
+            <Chip size={leftChipSize} label={`Preview (orig): ${datasetHeader.previewOriginal}`} />
+            <Chip size={leftChipSize} label={`Preview (proc): ${datasetHeader.previewProcessed}`} />
+            {datasetHeader.procRows != null && <Chip size={leftChipSize} label={`Rows: ${datasetHeader.procRows}`} />}
+            {datasetHeader.procCols != null && <Chip size={leftChipSize} label={`Cols: ${datasetHeader.procCols}`} />}
+            <Chip size={leftChipSize} label={`Num o/p: ${datasetHeader.numOrig}/${datasetHeader.numProc}`} variant="outlined" />
+            <Chip size={leftChipSize} label={`Cat o/p: ${datasetHeader.catOrig}/${datasetHeader.catProc}`} variant="outlined" />
+            <Chip size={leftChipSize} label={`Corr: ${corrDatasetMode}`} variant="outlined" />
+          </Box>
 
-          <Divider sx={{ my: 1.5 }} />
+          <Alert severity="info" sx={{ mb: 1.25, py: 0.5, "& .MuiAlert-message": { fontSize: 12 } }}>
+            {previewNote}
+          </Alert>
 
-          {/* Dataset mode controls */}
-          <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-            <FormControl size="small" sx={{ minWidth: 220 }}>
-              <InputLabel id="dist-mode-label">Numeric charts dataset</InputLabel>
-              <Select
-                labelId="dist-mode-label"
-                value={distDatasetMode}
-                label="Numeric charts dataset"
-                onChange={(e) => setDistDatasetMode(e.target.value)}
-              >
-                <MenuItem value="both">Both (original + processed)</MenuItem>
-                <MenuItem value="original">Original only</MenuItem>
-                <MenuItem value="processed">Processed only</MenuItem>
-              </Select>
-            </FormControl>
+          <Accordion expanded={vizPrefs.expandCustomize} onChange={() => updatePref("expandCustomize")} disableGutters sx={compactAccordionSx}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+              <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <TuneIcon fontSize="small" />
+                <Typography variant={leftTitleVariant} sx={{ fontWeight: 900 }}>
+                  Customize
+                </Typography>
+              </FlexBox>
+            </AccordionSummary>
 
-            <FormControl size="small" sx={{ minWidth: 220 }}>
-              <InputLabel id="cat-mode-label">Categorical chart dataset</InputLabel>
-              <Select
-                labelId="cat-mode-label"
-                value={catDatasetMode}
-                label="Categorical chart dataset"
-                onChange={(e) => setCatDatasetMode(e.target.value)}
-              >
-                <MenuItem value="original">Original</MenuItem>
-                <MenuItem value="processed">Processed</MenuItem>
-              </Select>
-            </FormControl>
+            <AccordionDetails sx={{ pt: 0.5 }}>
+              <FormGroup sx={{ gap: 0.25 }}>
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showAiInference} onChange={() => updatePref("showAiInference")} />}
+                  label="AI inference"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCorrelation} onChange={() => updatePref("showCorrelation")} />}
+                  label="Correlation matrices"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCorrelationScatter} onChange={() => updatePref("showCorrelationScatter")} />}
+                  label="Scatter"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showDistributions} onChange={() => updatePref("showDistributions")} />}
+                  label="Numeric distributions"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCategorical} onChange={() => updatePref("showCategorical")} />}
+                  label="Categorical distribution"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showWordCharts} onChange={() => updatePref("showWordCharts")} />}
+                  label="Word charts"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showScalingStats} onChange={() => updatePref("showScalingStats")} />}
+                  label="Scaling statistics"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showPreprocessingImpact} onChange={() => updatePref("showPreprocessingImpact")} />}
+                  label="Preprocessing impact"
+                />
+              </FormGroup>
 
-            <Box sx={{ display: "flex", alignItems: "center" }}>
-              <Typography variant="caption" color="textSecondary">
-                Correlation is computed by the backend on the processed dataset ({corrDatasetMode}).
+              <Divider sx={{ my: 1.25 }} />
+
+              <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="dist-mode-label">Numeric dataset</InputLabel>
+                  <Select
+                    labelId="dist-mode-label"
+                    value={distDatasetMode}
+                    label="Numeric dataset"
+                    onChange={(e) => setDistDatasetMode(e.target.value)}
+                  >
+                    <MenuItem value="both">Both</MenuItem>
+                    <MenuItem value="original">Original</MenuItem>
+                    <MenuItem value="processed">Processed</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="cat-mode-label">Categorical dataset</InputLabel>
+                  <Select
+                    labelId="cat-mode-label"
+                    value={catDatasetMode}
+                    label="Categorical dataset"
+                    onChange={(e) => setCatDatasetMode(e.target.value)}
+                  >
+                    <MenuItem value="original">Original</MenuItem>
+                    <MenuItem value="processed">Processed</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="word-mode-label">Word charts dataset</InputLabel>
+                  <Select
+                    labelId="word-mode-label"
+                    value={wordDatasetMode}
+                    label="Word charts dataset"
+                    onChange={(e) => setWordDatasetMode(e.target.value)}
+                  >
+                    <MenuItem value="processed">Processed</MenuItem>
+                    <MenuItem value="original">Original</MenuItem>
+                    <MenuItem value="both">Both</MenuItem>
+                  </Select>
+                </FormControl>
+              </FlexBox>
+
+              <Divider sx={{ my: 1.25 }} />
+
+              <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                <Tooltip title="Reset toggles/expansion to defaults for this dataset/job">
+                  <Button size="small" variant="outlined" onClick={resetPrefs} sx={{ fontSize: 12, py: 0.5 }}>
+                    Reset
+                  </Button>
+                </Tooltip>
+
+                {aiInferenceEnabled && (
+                  <Tooltip title="Force re-generate AI insights (bypasses cache)">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<RefreshIcon fontSize="small" />}
+                      onClick={() => fetchInsights({ bypassCache: true })}
+                      disabled={showLoading || insightsLoading}
+                      sx={{ fontSize: 12, py: 0.5 }}
+                    >
+                      Refresh AI
+                    </Button>
+                  </Tooltip>
+                )}
+              </FlexBox>
+
+              <Typography variant={leftBodyVariant} color="textSecondary" sx={{ mt: 1 }}>
+                Tip: Expand only the sections you need for faster navigation.
               </Typography>
-            </Box>
-          </FlexBox>
-        </Box>
-      </ChartCard>
+            </AccordionDetails>
+          </Accordion>
+        </ChartCard>
+      </Box>
 
-      {/* AI inference (only when enabled from page toggle) */}
-      {aiInferenceEnabled && (
-        <ChartCard
-          title="AI inference"
-          subtitle="Automated interpretation of what can be concluded from the processed dataset."
-          loading={showLoading}
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          <Box
-            sx={{
-              border: "1px solid rgba(0,0,0,0.08)",
-              borderRadius: 2,
-              p: 2,
-              background: "rgba(0,0,0,0.02)",
-            }}
-          >
-            {insightsLoading ? (
-              <Typography variant="body2" color="textSecondary">
-                Generating insights...
-              </Typography>
-            ) : insightsError ? (
-              <>
-                <Typography variant="body2" sx={{ fontWeight: 700 }} color="error">
-                  Failed to generate insights
+      {/* RIGHT: charts */}
+      <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0 }}>
+        {/* AI */}
+        {aiInferenceEnabled && vizPrefs.showAiInference && (
+          <ChartCard title="AI inference" subtitle="Automated interpretation based on processed dataset + metadata." loading={showLoading}>
+            <Accordion expanded={vizPrefs.expandAi} onChange={() => updatePref("expandAi")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Insights
                 </Typography>
-                <Typography variant="body2" color="textSecondary" sx={{ mt: 0.75 }}>
-                  {insightsError}
-                </Typography>
-              </>
-            ) : !insights ? (
-              <Typography variant="body2" color="textSecondary">
-                No insights available.
-              </Typography>
-            ) : (
-              <>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Executive summary
-                </Typography>
-                <Typography variant="body2" color="textSecondary" sx={{ mt: 0.75, mb: 1.5 }}>
-                  {insights.executiveSummary || "—"}
-                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <SectionState
+                  loading={insightsLoading}
+                  error={insightsError}
+                  empty={!insights && !insightsLoading && !insightsError}
+                  emptyText="No insights available."
+                />
 
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Key findings
-                </Typography>
-                <ul style={{ marginTop: 8, marginBottom: 16 }}>
-                  {(insights.keyFindings || []).slice(0, 8).map((x, i) => (
-                    <li key={`kf-${i}`}>
-                      <Typography variant="body2" color="textSecondary">
-                        {x}
-                      </Typography>
-                    </li>
-                  ))}
-                </ul>
-
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Data quality observations
-                </Typography>
-                <ul style={{ marginTop: 8, marginBottom: 16 }}>
-                  {(insights.dataQualityObservations || []).slice(0, 8).map((x, i) => (
-                    <li key={`dq-${i}`}>
-                      <Typography variant="body2" color="textSecondary">
-                        {x}
-                      </Typography>
-                    </li>
-                  ))}
-                </ul>
-
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Correlation insights
-                </Typography>
-                <ul style={{ marginTop: 8, marginBottom: 16 }}>
-                  {(insights.correlationInsights || []).slice(0, 8).map((x, i) => (
-                    <li key={`ci-${i}`}>
-                      <Typography variant="body2" color="textSecondary">
-                        {x}
-                      </Typography>
-                    </li>
-                  ))}
-                </ul>
-
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Recommended next steps
-                </Typography>
-                <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                  {(insights.recommendedNextSteps || []).slice(0, 8).map((x, i) => (
-                    <li key={`ns-${i}`}>
-                      <Typography variant="body2" color="textSecondary">
-                        {x}
-                      </Typography>
-                    </li>
-                  ))}
-                </ul>
-
-                <Typography variant="caption" color="textSecondary" sx={{ display: "block", mt: 1.5 }}>
-                  Confidence:{" "}
-                  {typeof insights.confidence === "number"
-                    ? `${Math.round(insights.confidence * 100)}%`
-                    : "—"}
-                </Typography>
-
-                {!!(insights.warnings || []).length && (
-                  <>
-                    <Typography variant="body2" sx={{ fontWeight: 700, mt: 1.5 }}>
-                      Warnings
+                {!insightsLoading && !insightsError && insights && (
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                      Executive summary
                     </Typography>
-                    <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                      {(insights.warnings || []).slice(0, 6).map((x, i) => (
-                        <li key={`w-${i}`}>
+                    <Typography variant="body2" color="textSecondary" sx={{ mt: 0.75, mb: 1.5 }}>
+                      {insights.executiveSummary || "—"}
+                    </Typography>
+
+                    <Divider sx={{ my: 1.5 }} />
+
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                      Key findings
+                    </Typography>
+                    <ul style={{ marginTop: 8, marginBottom: 16 }}>
+                      {(insights.keyFindings || []).slice(0, 8).map((x, i) => (
+                        <li key={`kf-${i}`}>
                           <Typography variant="body2" color="textSecondary">
                             {x}
                           </Typography>
                         </li>
                       ))}
                     </ul>
+
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                      Data quality observations
+                    </Typography>
+                    <ul style={{ marginTop: 8, marginBottom: 16 }}>
+                      {(insights.dataQualityObservations || []).slice(0, 8).map((x, i) => (
+                        <li key={`dq-${i}`}>
+                          <Typography variant="body2" color="textSecondary">
+                            {x}
+                          </Typography>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                      Correlation insights
+                    </Typography>
+                    <ul style={{ marginTop: 8, marginBottom: 16 }}>
+                      {(insights.correlationInsights || []).slice(0, 8).map((x, i) => (
+                        <li key={`ci-${i}`}>
+                          <Typography variant="body2" color="textSecondary">
+                            {x}
+                          </Typography>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                      Recommended next steps
+                    </Typography>
+                    <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                      {(insights.recommendedNextSteps || []).slice(0, 8).map((x, i) => (
+                        <li key={`ns-${i}`}>
+                          <Typography variant="body2" color="textSecondary">
+                            {x}
+                          </Typography>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Typography variant="caption" color="textSecondary" sx={{ display: "block", mt: 1.5 }}>
+                      Confidence:{" "}
+                      {typeof insights.confidence === "number" ? `${Math.round(insights.confidence * 100)}%` : "—"}
+                    </Typography>
+                  </Box>
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
+
+        {/* Correlation */}
+        {vizPrefs.showCorrelation && (
+          <ChartCard
+            title="Correlation"
+            subtitle={
+              corrNormalized.mode === "multi"
+                ? "Multiple correlation analyses computed by the backend."
+                : "Correlation analysis computed by the backend."
+            }
+            loading={showLoading}
+            footer={previewNote}
+          >
+            <Accordion expanded={vizPrefs.expandCorrelation} onChange={() => updatePref("expandCorrelation")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Matrices and top pairs
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>{renderCorrelation()}</AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
+
+        {/* Scatter */}
+        {vizPrefs.showCorrelationScatter && (
+          <ChartCard title="Correlation scatter plot" subtitle="Scatter plot based on active correlation analysis." loading={showLoading} footer={previewNote}>
+            <Accordion expanded={vizPrefs.expandScatter} onChange={() => updatePref("expandScatter")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Scatter plot
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                {!activeCorrAnalysis ? (
+                  <Alert severity="info">Correlation was not requested or is not available.</Alert>
+                ) : activeCorrResult?.error ? (
+                  <Alert severity="error">Correlation failed: {String(activeCorrResult.error)}</Alert>
+                ) : !scatterPair ? (
+                  <Alert severity="info">Not enough numeric columns to plot.</Alert>
+                ) : (
+                  <>
+                    <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                        Pair to plot
+                      </Typography>
+
+                      <Autocomplete
+                        size="small"
+                        options={topPairsForUi}
+                        value={topPairsForUi.find((x) => x.idx === scatterPairIndex) || null}
+                        onChange={(_, v) => setScatterPairIndex(v ? v.idx : 0)}
+                        renderInput={(params) => <TextField {...params} label="Top pairs" sx={{ minWidth: 360 }} />}
+                        disableClearable
+                        disabled={!topPairsForUi.length}
+                      />
+
+                      <Chip size="small" label={`Analysis: ${activeCorrAnalysis.name}`} variant="outlined" />
+                    </FlexBox>
+
+                    {scatterDataProcessed.length === 0 ? (
+                      <Alert severity="info">Not enough numeric points in the preview to plot.</Alert>
+                    ) : (
+                      <EScatter
+                        title="Scatter"
+                        data={scatterDataProcessed}
+                        xLabel={scatterPair.col1}
+                        yLabel={scatterPair.col2}
+                        filename={`${filename || "dataset"}_${activeCorrAnalysis.id}_scatter_${scatterPair.col1}_vs_${scatterPair.col2}`}
+                        showDownload
+                      />
+                    )}
                   </>
                 )}
-              </>
-            )}
-          </Box>
-        </ChartCard>
-      )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
 
-      {/* Preprocessing impact */}
-      {vizPrefs.showPreprocessingImpact && (
-        <ChartCard
-          title="Preprocessing impact"
-          subtitle="How many transformations/actions were applied per column (from metadata)."
-          loading={showLoading}
-          footer={previewNote}
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          {actionCountSeries.length === 0 ? (
-            <Typography variant="body2" color="textSecondary">
-              No column action metadata available for this job.
-            </Typography>
-          ) : (
-            <CategoryBarChart data={actionCountSeries} />
-          )}
-        </ChartCard>
-      )}
-
-      {/* Multi correlation matrices */}
-      {vizPrefs.showCorrelation && renderCorrelationCards()}
-
-      {/* Scatter plot from correlation (active analysis) */}
-      {vizPrefs.showCorrelationScatter && (
-        <ChartCard
-          title="Correlation scatter plot"
-          subtitle="Scatter plot based on correlation output (active analysis)."
-          loading={showLoading}
-          footer={previewNote}
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          {!activeCorrAnalysis ? (
-            <Typography variant="body2" color="textSecondary">
-              Correlation was not requested or is not available.
-            </Typography>
-          ) : activeCorrResult?.error ? (
-            <Typography variant="body2" color="error">
-              Correlation failed: {String(activeCorrResult.error)}
-            </Typography>
-          ) : !scatterPair ? (
-            <Typography variant="body2" color="textSecondary">
-              Not enough numeric columns to plot.
-            </Typography>
-          ) : (
-            <>
-              <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Pair to plot
+        {/* Numeric distributions */}
+        {vizPrefs.showDistributions && (
+          <ChartCard title="Numeric distributions" subtitle="Compare distributions between original and processed data." loading={showLoading} footer={previewNote}>
+            <Accordion expanded={vizPrefs.expandDistributions} onChange={() => updatePref("expandDistributions")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Histograms
                 </Typography>
+              </AccordionSummary>
 
-                <FormControl size="small" sx={{ minWidth: 320 }}>
-                  <InputLabel id="pair-select-label">Top pairs</InputLabel>
-                  <Select
-                    labelId="pair-select-label"
-                    value={String(scatterPairIndex)}
-                    label="Top pairs"
-                    onChange={(e) => setScatterPairIndex(Number(e.target.value))}
-                    disabled={!activeCorrPairs?.length}
+              <AccordionDetails>
+                <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                    Columns
+                  </Typography>
+
+                  <Autocomplete
+                    size="small"
+                    options={numericOptions}
+                    value={histColA ? { label: histColA } : null}
+                    onChange={(_, v) => setHistColA(v?.label || "")}
+                    renderInput={(params) => <TextField {...params} label="Histogram A" sx={{ minWidth: 240 }} />}
+                    disableClearable
+                    disabled={!numericOptions.length}
+                  />
+
+                  <Autocomplete
+                    size="small"
+                    options={numericOptions}
+                    value={histColB ? { label: histColB } : null}
+                    onChange={(_, v) => setHistColB(v?.label || "")}
+                    renderInput={(params) => <TextField {...params} label="Histogram B" sx={{ minWidth: 240 }} />}
+                    disableClearable
+                    disabled={!numericOptions.length}
+                  />
+
+                  <Chip size="small" label={`Mode: ${distDatasetMode}`} variant="outlined" />
+                </FlexBox>
+
+                <Divider sx={{ mb: 1.5 }} />
+
+                {histTargets.length === 0 ? (
+                  <Alert severity="info">No numeric columns found in the preview rows.</Alert>
+                ) : (
+                  <FlexBox
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr", md: distDatasetMode === "both" ? "1fr 1fr" : "1fr" },
+                      gap: 2,
+                    }}
                   >
-                    {(activeCorrPairs?.length ? activeCorrPairs : [scatterPair]).slice(0, 10).map((p, idx) => (
-                      <MenuItem key={`${p.col1}-${p.col2}-${idx}`} value={String(idx)}>
-                        {p.col1} vs {p.col2}
-                        {typeof p.r === "number" ? ` (r=${p.r.toFixed(3)})` : ""}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                    {(distDatasetMode === "both" || distDatasetMode === "original") && (
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 900, mb: 1 }}>
+                          Original dataset
+                        </Typography>
 
-                <Chip
-                  size="small"
-                  label={`Analysis: ${activeCorrAnalysis.name}`}
-                  variant="outlined"
-                />
-              </FlexBox>
+                        <FlexBox sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", xl: "1fr 1fr" }, gap: 2 }}>
+                          {histTargets.map((col) => (
+                            <ChartCard key={`orig-hist-${col}`} title="Histogram" subtitle={`"${col}"`} loading={showLoading}>
+                              {histDataOriginal[col]?.length ? (
+                                <EHistogram
+                                  title="Histogram"
+                                  data={histDataOriginal[col]}
+                                  xLabel={col}
+                                  yLabel="Count"
+                                  filename={`${filename || "dataset"}_original_hist_${col}`}
+                                  showDownload
+                                />
+                              ) : (
+                                <Alert severity="info">Not enough numeric values to build a histogram.</Alert>
+                              )}
+                            </ChartCard>
+                          ))}
+                        </FlexBox>
+                      </Box>
+                    )}
 
-              {scatterDataProcessed.length === 0 ? (
-                <Typography variant="body2" color="textSecondary">
-                  Not enough numeric points in the preview to plot.
+                    {(distDatasetMode === "both" || distDatasetMode === "processed") && (
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 900, mb: 1 }}>
+                          Processed dataset
+                        </Typography>
+
+                        <FlexBox sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", xl: "1fr 1fr" }, gap: 2 }}>
+                          {histTargets.map((col) => (
+                            <ChartCard key={`proc-hist-${col}`} title="Histogram" subtitle={`"${col}"`} loading={showLoading}>
+                              {histDataProcessed[col]?.length ? (
+                                <EHistogram
+                                  title="Histogram"
+                                  data={histDataProcessed[col]}
+                                  xLabel={col}
+                                  yLabel="Count"
+                                  filename={`${filename || "dataset"}_processed_hist_${col}`}
+                                  showDownload
+                                />
+                              ) : (
+                                <Alert severity="info">Not enough numeric values to build a histogram.</Alert>
+                              )}
+                            </ChartCard>
+                          ))}
+                        </FlexBox>
+                      </Box>
+                    )}
+                  </FlexBox>
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
+
+        {/* Categorical */}
+        {vizPrefs.showCategorical && (
+          <ChartCard title="Categorical distribution" subtitle="Pick a categorical column and view its frequency distribution." loading={showLoading} footer={previewNote}>
+            <Accordion expanded={vizPrefs.expandCategorical} onChange={() => updatePref("expandCategorical")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Category counts
                 </Typography>
-              ) : (
-                <ScatterPlot data={scatterDataProcessed} xLabel={scatterPair.col1} yLabel={scatterPair.col2} />
-              )}
-            </>
-          )}
-        </ChartCard>
-      )}
-
-      {/* Numeric distributions (user-selected columns + dataset mode) */}
-      {vizPrefs.showDistributions && (
-        <ChartCard
-          title="Numeric distributions"
-          subtitle="Choose numeric columns and compare distributions between original and processed data."
-          loading={showLoading}
-          footer={previewNote}
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              Columns
-            </Typography>
-
-            <FormControl size="small" sx={{ minWidth: 220 }}>
-              <InputLabel id="hist-a-label">Histogram A</InputLabel>
-              <Select
-                labelId="hist-a-label"
-                value={histColA || ""}
-                label="Histogram A"
-                onChange={(e) => setHistColA(e.target.value)}
-              >
-                {(numericColsProcessed.length ? numericColsProcessed : numericColsOriginal).map((c) => (
-                  <MenuItem key={`a-${c}`} value={c}>
-                    {c}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl size="small" sx={{ minWidth: 220 }}>
-              <InputLabel id="hist-b-label">Histogram B</InputLabel>
-              <Select
-                labelId="hist-b-label"
-                value={histColB || ""}
-                label="Histogram B"
-                onChange={(e) => setHistColB(e.target.value)}
-              >
-                {(numericColsProcessed.length ? numericColsProcessed : numericColsOriginal).map((c) => (
-                  <MenuItem key={`b-${c}`} value={c}>
-                    {c}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <Chip size="small" label={`Mode: ${distDatasetMode}`} variant="outlined" />
-          </FlexBox>
-
-          <Divider sx={{ mb: 1.5 }} />
-
-          {histTargets.length === 0 ? (
-            <Typography variant="body2" color="textSecondary">
-              No numeric columns found in the preview rows.
-            </Typography>
-          ) : (
-            <FlexBox
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: distDatasetMode === "both" ? "1fr 1fr" : "1fr" },
-                gap: 2,
-              }}
-            >
-              {/* Original */}
-              {(distDatasetMode === "both" || distDatasetMode === "original") && (
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 800, mb: 1 }}>
-                    Original dataset
+              </AccordionSummary>
+              <AccordionDetails>
+                <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                    Column
                   </Typography>
 
-                  <FlexBox sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2 }}>
-                    {histTargets.map((col) => (
-                      <ChartCard
-                        key={`orig-hist-${col}`}
-                        title="Histogram"
-                        subtitle={`"${col}"`}
-                        loading={showLoading}
-                        footer={null}
-                      >
-                        {histDataOriginal[col]?.length ? (
-                          <HistogramChart data={histDataOriginal[col]} />
-                        ) : (
-                          <Typography variant="body2" color="textSecondary">
-                            Not enough numeric values to build a histogram.
-                          </Typography>
-                        )}
-                      </ChartCard>
-                    ))}
-                  </FlexBox>
-                </Box>
-              )}
+                  <FormControl size="small" sx={{ minWidth: 280 }}>
+                    <InputLabel id="cat-col-label">Categorical column</InputLabel>
+                    <Select
+                      labelId="cat-col-label"
+                      value={catCol || ""}
+                      label="Categorical column"
+                      onChange={(e) => setCatCol(e.target.value)}
+                      disabled={
+                        (catDatasetMode === "original" && !categoricalColsOriginal.length) ||
+                        (catDatasetMode === "processed" && !categoricalColsProcessed.length)
+                      }
+                    >
+                      {(catDatasetMode === "processed" ? categoricalColsProcessed : categoricalColsOriginal).map((c) => (
+                        <MenuItem key={`cat-${c}`} value={c}>
+                          {c}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
 
-              {/* Processed */}
-              {(distDatasetMode === "both" || distDatasetMode === "processed") && (
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 800, mb: 1 }}>
-                    Processed dataset
+                  <Chip size="small" label={`Dataset: ${catDatasetMode}`} variant="outlined" />
+                </FlexBox>
+
+                {!catCol ? (
+                  <Alert severity="info">No categorical column available in the selected dataset preview.</Alert>
+                ) : (
+                  <EBar
+                    title="Category counts"
+                    data={catData}
+                    xLabel={catCol}
+                    yLabel="Count"
+                    horizontal
+                    filename={`${filename || "dataset"}_${catDatasetMode}_categorical_${catCol}`}
+                    showDownload
+                  />
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
+
+        {/* Word charts */}
+        {vizPrefs.showWordCharts && (
+          <ChartCard title="Word charts" subtitle="Quick text signal from preview rows (word cloud + top terms)." loading={showLoading} footer={previewNote}>
+            <Accordion expanded={vizPrefs.expandWordCharts} onChange={() => updatePref("expandWordCharts")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Word cloud and top terms
+                </Typography>
+              </AccordionSummary>
+
+              <AccordionDetails>
+                <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                    Text source
                   </Typography>
 
-                  <FlexBox sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2 }}>
-                    {histTargets.map((col) => (
-                      <ChartCard
-                        key={`proc-hist-${col}`}
-                        title="Histogram"
-                        subtitle={`"${col}"`}
-                        loading={showLoading}
-                        footer={null}
-                      >
-                        {histDataProcessed[col]?.length ? (
-                          <HistogramChart data={histDataProcessed[col]} />
-                        ) : (
-                          <Typography variant="body2" color="textSecondary">
-                            Not enough numeric values to build a histogram.
-                          </Typography>
-                        )}
-                      </ChartCard>
-                    ))}
+                  <Autocomplete
+                    size="small"
+                    options={wordSourceOptions}
+                    value={wordSourceOptions.find((o) => o.value === wordSource) || wordSourceOptions[0]}
+                    onChange={(_, v) => setWordSource(v?.value || "__ALL_TEXT__")}
+                    renderInput={(params) => <TextField {...params} label="Source" sx={{ minWidth: 320 }} />}
+                    disableClearable
+                  />
+
+                  <Chip size="small" label={`Dataset: ${wordDatasetMode}`} variant="outlined" />
+                  <Chip size="small" label={`Terms: ${wordCounts.length}`} variant="outlined" />
+                </FlexBox>
+
+                {!wordCounts.length ? (
+                  <Alert severity="info">
+                    No usable text tokens found in the preview rows for the selected source. Try “All text-like fields” or a different column.
+                  </Alert>
+                ) : (
+                  <FlexBox
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" },
+                      gap: 2,
+                      alignItems: "start",
+                    }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 900, mb: 1 }}>
+                        Word cloud
+                      </Typography>
+                      <EWordCloud
+                        title="Word cloud"
+                        words={wordCounts}
+                        filename={`${filename || "dataset"}_wordcloud_${wordDatasetMode}_${wordSource}`}
+                        showDownload
+                      />
+                    </Box>
+
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 900, mb: 1 }}>
+                        Top terms
+                      </Typography>
+                      <EBar
+                        title="Top terms"
+                        data={topTermsBar}
+                        xLabel="Count"
+                        yLabel="Terms"
+                        horizontal
+                        filename={`${filename || "dataset"}_top_terms_${wordDatasetMode}_${wordSource}`}
+                        showDownload
+                      />
+                    </Box>
                   </FlexBox>
-                </Box>
-              )}
-            </FlexBox>
-          )}
-        </ChartCard>
-      )}
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
 
-      {/* Categorical distribution */}
-      {vizPrefs.showCategorical && (
-        <ChartCard
-          title="Categorical distribution"
-          subtitle="Pick a categorical column and view its frequency distribution."
-          loading={showLoading}
-          footer={previewNote}
-        >
-          <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              Column
-            </Typography>
+        {/* Scaling stats */}
+        {vizPrefs.showScalingStats && (
+          <ChartCard title="Scaling statistics" subtitle="Statistics used for scaling (from backend metadata)." loading={showLoading} footer="This uses backend scaling_stats (not recomputed client-side).">
+            <Accordion expanded={vizPrefs.expandScaling} onChange={() => updatePref("expandScaling")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Scaling table
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                {!scalingRows.length ? (
+                  <Alert severity="info">No scaling statistics were recorded for this job.</Alert>
+                ) : (
+                  <TableContainer sx={{ borderRadius: 1, border: (theme) => `1px solid ${theme.palette.divider}`, maxHeight: 320 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900 }}>Column</TableCell>
+                          <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>Min</TableCell>
+                          <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>Max</TableCell>
+                          <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>Mean</TableCell>
+                          <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>SD</TableCell>
+                          <TableCell sx={{ fontWeight: 900 }}>Method</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {scalingRows.map((r) => (
+                          <TableRow key={r.col} hover>
+                            <TableCell>{r.col}</TableCell>
+                            <TableCell sx={{ textAlign: "right" }}>{typeof r.min === "number" ? r.min.toFixed(4) : "—"}</TableCell>
+                            <TableCell sx={{ textAlign: "right" }}>{typeof r.max === "number" ? r.max.toFixed(4) : "—"}</TableCell>
+                            <TableCell sx={{ textAlign: "right" }}>{typeof r.mean === "number" ? r.mean.toFixed(4) : "—"}</TableCell>
+                            <TableCell sx={{ textAlign: "right" }}>{typeof r.sd === "number" ? r.sd.toFixed(4) : "—"}</TableCell>
+                            <TableCell>{r.method}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
 
-            <FormControl size="small" sx={{ minWidth: 240 }}>
-              <InputLabel id="cat-col-label">Categorical column</InputLabel>
-              <Select
-                labelId="cat-col-label"
-                value={catCol || ""}
-                label="Categorical column"
-                onChange={(e) => setCatCol(e.target.value)}
-                disabled={
-                  (catDatasetMode === "original" && !categoricalColsOriginal.length) ||
-                  (catDatasetMode === "processed" && !categoricalColsProcessed.length)
-                }
-              >
-                {(catDatasetMode === "processed" ? categoricalColsProcessed : categoricalColsOriginal).map((c) => (
-                  <MenuItem key={`cat-${c}`} value={c}>
-                    {c}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <Chip size="small" label={`Dataset: ${catDatasetMode}`} variant="outlined" />
-          </FlexBox>
-
-          {!catCol ? (
-            <Typography variant="body2" color="textSecondary">
-              No categorical column available in the selected dataset preview.
-            </Typography>
-          ) : (
-            <CategoryBarChart data={catData} />
-          )}
-        </ChartCard>
-      )}
-
-      {/* Scaling stats */}
-      {vizPrefs.showScalingStats && (
-        <ChartCard
-          title="Scaling statistics"
-          subtitle="Statistics used for scaling (from backend metadata)."
-          loading={showLoading}
-          footer="This uses backend scaling_stats (not recomputed client-side)."
-          sx={{ gridColumn: { xs: "auto", md: "1 / span 2" } }}
-        >
-          {!scalingRows.length ? (
-            <Typography variant="body2" color="textSecondary">
-              No scaling statistics were recorded for this job.
-            </Typography>
-          ) : (
-            <TableContainer
-              sx={{
-                borderRadius: 1,
-                border: (theme) => `1px solid ${theme.palette.divider}`,
-                maxHeight: 260,
-              }}
-            >
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}>Column</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textAlign: "right" }}>Min</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textAlign: "right" }}>Max</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textAlign: "right" }}>Mean</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textAlign: "right" }}>SD</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Method</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {scalingRows.map((r) => (
-                    <TableRow key={r.col} hover>
-                      <TableCell>{r.col}</TableCell>
-                      <TableCell sx={{ textAlign: "right" }}>
-                        {typeof r.min === "number" ? r.min.toFixed(4) : "—"}
-                      </TableCell>
-                      <TableCell sx={{ textAlign: "right" }}>
-                        {typeof r.max === "number" ? r.max.toFixed(4) : "—"}
-                      </TableCell>
-                      <TableCell sx={{ textAlign: "right" }}>
-                        {typeof r.mean === "number" ? r.mean.toFixed(4) : "—"}
-                      </TableCell>
-                      <TableCell sx={{ textAlign: "right" }}>
-                        {typeof r.sd === "number" ? r.sd.toFixed(4) : "—"}
-                      </TableCell>
-                      <TableCell>{r.method}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </ChartCard>
-      )}
+        {/* Preprocessing impact */}
+        {vizPrefs.showPreprocessingImpact && (
+          <ChartCard title="Preprocessing impact" subtitle="How many transformations/actions were applied per column (from metadata)." loading={showLoading} footer={previewNote}>
+            <Accordion expanded={vizPrefs.expandPreprocess} onChange={() => updatePref("expandPreprocess")} disableGutters sx={compactAccordionSx}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  Actions per column
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                {actionCountSeries.length === 0 ? (
+                  <Alert severity="info">No column action metadata available for this job.</Alert>
+                ) : (
+                  <EBar
+                    title="Actions per column"
+                    data={actionCountSeries}
+                    xLabel="Actions"
+                    yLabel="Columns"
+                    horizontal
+                    filename={`${filename || "dataset"}_preprocessing_actions`}
+                    showDownload
+                  />
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </ChartCard>
+        )}
+      </FlexBox>
     </FlexBox>
   );
 };

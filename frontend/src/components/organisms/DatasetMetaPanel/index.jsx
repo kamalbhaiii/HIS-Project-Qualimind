@@ -12,6 +12,11 @@ import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 
+import Accordion from "@mui/material/Accordion";
+import AccordionSummary from "@mui/material/AccordionSummary";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+
 function asArray(x) {
   if (!x) return [];
   if (Array.isArray(x)) return x;
@@ -23,7 +28,6 @@ function humanizeStep(step) {
   const task = String(step?.task || "").toLowerCase();
   const method = String(step?.method || "").toLowerCase();
 
-  // Friendly names (you can adjust text freely)
   if (task === "missing_values") {
     if (method === "numeric_median") return "Handle missing values (numeric median)";
     if (method === "numeric_mean") return "Handle missing values (numeric mean)";
@@ -47,7 +51,6 @@ function humanizeStep(step) {
 }
 
 function normalizeColumnsFromAppliesTo(appliesTo) {
-  // Defensive against jsonlite oddities like columns: "color" or columns: { } or NULL
   const cols = appliesTo?.columns;
   if (Array.isArray(cols)) return cols.filter(Boolean).map(String);
   if (typeof cols === "string" && cols.trim()) return [cols.trim()];
@@ -57,7 +60,6 @@ function normalizeColumnsFromAppliesTo(appliesTo) {
 function normalizeTypesFromAppliesTo(appliesTo) {
   const types = appliesTo?.types;
   if (Array.isArray(types)) return types.filter(Boolean).map((t) => String(t).toLowerCase());
-  // sometimes jsonlite creates {} or null – ignore
   return [];
 }
 
@@ -82,17 +84,14 @@ function buildRequestedPlan(preprocessingConfig) {
     };
   });
 
-  // Column-centric view
   const byColumn = {};
   ordered.forEach((st) => {
-    // If columns explicitly present, group by those
     if (st.columns.length > 0) {
       st.columns.forEach((c) => {
         if (!byColumn[c]) byColumn[c] = [];
         byColumn[c].push(st);
       });
     } else {
-      // otherwise group under a pseudo key
       const key = st.types.length ? `types:${st.types.join("+")}` : "global";
       if (!byColumn[key]) byColumn[key] = [];
       byColumn[key].push(st);
@@ -103,11 +102,8 @@ function buildRequestedPlan(preprocessingConfig) {
 }
 
 const DatasetMetaPanel = ({ dataset, requestedPreprocessingConfig, executedSteps }) => {
-  const safeNumber = (value) =>
-    typeof value === "number" ? value.toLocaleString() : "—";
-
-  const safeValue = (value) =>
-    value !== null && value !== undefined && value !== "" ? value : "—";
+  const safeNumber = (value) => (typeof value === "number" ? value.toLocaleString() : "—");
+  const safeValue = (value) => (value !== null && value !== undefined && value !== "" ? value : "—");
 
   if (!dataset) return null;
 
@@ -115,11 +111,16 @@ const DatasetMetaPanel = ({ dataset, requestedPreprocessingConfig, executedSteps
     ? dataset.preprocessingTasks.join(", ")
     : "—";
 
-  const requestedPlan = useMemo(() => {
-    return buildRequestedPlan(requestedPreprocessingConfig);
-  }, [requestedPreprocessingConfig]);
-
+  const requestedPlan = useMemo(() => buildRequestedPlan(requestedPreprocessingConfig), [requestedPreprocessingConfig]);
   const hasRequestedConfig = requestedPlan.ordered.length > 0;
+
+  // Collapsible summary chips
+  const requestedSummary = useMemo(() => {
+    if (!hasRequestedConfig) return { steps: 0, groups: 0, cols: 0 };
+    const groups = Object.keys(requestedPlan.byColumn || {}).length;
+    const explicitCols = Object.keys(requestedPlan.byColumn || {}).filter((k) => !k.startsWith("types:") && k !== "global").length;
+    return { steps: requestedPlan.ordered.length, groups, cols: explicitCols };
+  }, [hasRequestedConfig, requestedPlan]);
 
   return (
     <SurfaceCard
@@ -214,7 +215,6 @@ const DatasetMetaPanel = ({ dataset, requestedPreprocessingConfig, executedSteps
           <KeyValueItem label="Last processed at" value={safeValue(dataset.lastProcessedAt)} />
         </Grid>
 
-        {/* Legacy (tasks mode) */}
         <Grid item xs={12}>
           <KeyValueItem label="Requested tasks (legacy)" value={requestedTasksLegacy || "—"} />
         </Grid>
@@ -222,100 +222,115 @@ const DatasetMetaPanel = ({ dataset, requestedPreprocessingConfig, executedSteps
 
       <Divider sx={{ my: 2 }} />
 
-      {/* New: Requested preprocessing (config-mode friendly) */}
-      <FlexBox sx={{ flexDirection: "column", gap: 1.25 }}>
-        <FlexBox sx={{ flexDirection: "column", gap: 0.25 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            Requested preprocessing
-          </Typography>
-          <Typography variant="caption" color="textSecondary">
-            Human-readable plan based on the config sent for the latest job.
-          </Typography>
-        </FlexBox>
-
-        {!hasRequestedConfig ? (
-          <Typography variant="body2" color="textSecondary">
-            No preprocessing config was provided for this job.
-          </Typography>
-        ) : (
-          <>
-            {/* Column-centric summary */}
-            <FlexBox sx={{ flexDirection: "column", gap: 1 }}>
-              <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                By column
+      {/* Requested preprocessing (COLLAPSIBLE) */}
+      <Accordion
+        defaultExpanded={false}
+        disableGutters
+        sx={{
+          "&:before": { display: "none" },
+          border: "1px solid rgba(0,0,0,0.08)",
+          borderRadius: 2,
+          overflow: "hidden",
+          background: "rgba(0,0,0,0.02)",
+        }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <FlexBox sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5, width: "100%" }}>
+            <FlexBox sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Requested preprocessing
               </Typography>
-
-              <FlexBox sx={{ flexDirection: "column", gap: 1 }}>
-                {Object.entries(requestedPlan.byColumn).map(([col, items]) => (
-                  <FlexBox
-                    key={col}
-                    sx={{
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      borderRadius: 2,
-                      p: 1.25,
-                      background: "rgba(0,0,0,0.02)",
-                      flexDirection: "column",
-                      gap: 0.75,
-                    }}
-                  >
-                    <FlexBox sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                        {col}
-                      </Typography>
-                      <Chip size="small" label={`${items.length} step${items.length === 1 ? "" : "s"}`} />
-                    </FlexBox>
-
-                    <FlexBox sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-                      {items.map((it) => (
-                        <Chip
-                          key={`${col}-${it.idx}-${it.label}`}
-                          size="small"
-                          variant="outlined"
-                          label={it.label}
-                        />
-                      ))}
-                    </FlexBox>
-                  </FlexBox>
-                ))}
-              </FlexBox>
+              <Typography variant="caption" color="textSecondary" sx={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                Human-readable plan based on the config sent for the latest job.
+              </Typography>
             </FlexBox>
 
-            {/* Ordered steps */}
-            <FlexBox sx={{ flexDirection: "column", gap: 0.75, mt: 0.5 }}>
-              <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                In execution order
-              </Typography>
-
-              <FlexBox sx={{ flexDirection: "column", gap: 0.5 }}>
-                {requestedPlan.ordered.map((st) => (
-                  <Typography key={st.idx} variant="body2" color="textSecondary">
-                    <strong>Step {st.idx}:</strong> {st.label}
-                    {st.columns?.length ? ` • columns: ${st.columns.join(", ")}` : ""}
-                    {st.types?.length ? ` • types: ${st.types.join(", ")}` : ""}
-                  </Typography>
-                ))}
-              </FlexBox>
-            </FlexBox>
-          </>
-        )}
-
-        {/* Executed steps (from metadata) */}
-        {Array.isArray(executedSteps) && executedSteps.length > 0 && (
-          <FlexBox sx={{ flexDirection: "column", gap: 0.5, mt: 1 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              Executed steps
-            </Typography>
-            <FlexBox sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-              {executedSteps.slice(0, 24).map((s, idx) => (
-                <Chip key={`${s}-${idx}`} size="small" label={String(s)} />
-              ))}
-              {executedSteps.length > 24 && (
-                <Chip size="small" variant="outlined" label={`+${executedSteps.length - 24} more`} />
-              )}
+            <FlexBox sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <Chip size="small" label={`${requestedSummary.steps} steps`} />
+              <Chip size="small" variant="outlined" label={`${requestedSummary.groups} groups`} />
+              <Chip size="small" variant="outlined" label={`${requestedSummary.cols} cols`} />
             </FlexBox>
           </FlexBox>
-        )}
-      </FlexBox>
+        </AccordionSummary>
+
+        <AccordionDetails>
+          {!hasRequestedConfig ? (
+            <Typography variant="body2" color="textSecondary">
+              No preprocessing config was provided for this job.
+            </Typography>
+          ) : (
+            <FlexBox sx={{ flexDirection: "column", gap: 1.25 }}>
+              {/* Column-centric summary */}
+              <FlexBox sx={{ flexDirection: "column", gap: 1 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                  By column
+                </Typography>
+
+                <FlexBox sx={{ flexDirection: "column", gap: 1 }}>
+                  {Object.entries(requestedPlan.byColumn).map(([col, items]) => (
+                    <FlexBox
+                      key={col}
+                      sx={{
+                        border: "1px solid rgba(0,0,0,0.08)",
+                        borderRadius: 2,
+                        p: 1.25,
+                        background: "rgba(255,255,255,0.6)",
+                        flexDirection: "column",
+                        gap: 0.75,
+                      }}
+                    >
+                      <FlexBox sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                          {col}
+                        </Typography>
+                        <Chip size="small" label={`${items.length} step${items.length === 1 ? "" : "s"}`} />
+                      </FlexBox>
+
+                      <FlexBox sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+                        {items.map((it) => (
+                          <Chip key={`${col}-${it.idx}-${it.label}`} size="small" variant="outlined" label={it.label} />
+                        ))}
+                      </FlexBox>
+                    </FlexBox>
+                  ))}
+                </FlexBox>
+              </FlexBox>
+
+              {/* Ordered steps */}
+              <FlexBox sx={{ flexDirection: "column", gap: 0.75, mt: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                  In execution order
+                </Typography>
+
+                <FlexBox sx={{ flexDirection: "column", gap: 0.5 }}>
+                  {requestedPlan.ordered.map((st) => (
+                    <Typography key={st.idx} variant="body2" color="textSecondary">
+                      <strong>Step {st.idx}:</strong> {st.label}
+                      {st.columns?.length ? ` • columns: ${st.columns.join(", ")}` : ""}
+                      {st.types?.length ? ` • types: ${st.types.join(", ")}` : ""}
+                    </Typography>
+                  ))}
+                </FlexBox>
+              </FlexBox>
+            </FlexBox>
+          )}
+        </AccordionDetails>
+      </Accordion>
+
+      {/* Executed steps (from metadata) */}
+      {Array.isArray(executedSteps) && executedSteps.length > 0 && (
+        <FlexBox sx={{ flexDirection: "column", gap: 0.5, mt: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Executed steps
+          </Typography>
+          <FlexBox sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+            {executedSteps.slice(0, 24).map((s, idx) => (
+              <Chip key={`${s}-${idx}`} size="small" label={String(s)} />
+            ))}
+            {executedSteps.length > 24 && <Chip size="small" variant="outlined" label={`+${executedSteps.length - 24} more`} />}
+          </FlexBox>
+        </FlexBox>
+      )}
     </SurfaceCard>
   );
 };

@@ -1035,6 +1035,8 @@ export default function Step2PreprocessingOrchestrator({
                   display: "flex",
                   flexDirection: "column",
                   gap: 1,
+                  overflowY: "auto",
+                  maxHeight: 300,
                 }}
               >
                 <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
@@ -1042,13 +1044,15 @@ export default function Step2PreprocessingOrchestrator({
                 </Typography>
 
                 {appliedList.map((item) => (
-                  <div
+                  <FlexBox
                     key={item.col}
-                    style={{
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      borderRadius: 12,
-                      padding: 12,
-                      background: "rgba(0,0,0,0.02)",
+                    sx={{
+                      display: "flex", flexDirection: "column",
+                      gap: 0.75,
+                      border: "1px solid rgba(0,0,0,0.10)",
+                      borderRadius: 2,
+                      padding: 1,
+                      background: "rgba(0,0,0,0.015)",
                     }}
                   >
                     <FlexBox sx={{ display: "flex", justifyContent: "space-between", gap: 1, alignItems: "center" }}>
@@ -1073,7 +1077,7 @@ export default function Step2PreprocessingOrchestrator({
                         <Chip text="No actions" />
                       )}
                     </FlexBox>
-                  </div>
+                  </FlexBox>
                 ))}
               </FlexBox>
             )}

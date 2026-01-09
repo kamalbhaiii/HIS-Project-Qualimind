@@ -1,21 +1,34 @@
+// src/components/molecules/DatasetViewSectionToggle/index.jsx
 import React from "react";
 import PropTypes from "prop-types";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import ToggleButton from "@mui/material/ToggleButton";
+
 import Box from "@mui/material/Box";
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
+import Tooltip from "@mui/material/Tooltip";
 
 const DatasetViewSectionToggle = ({ value, onChange }) => {
-  const handleChange = (e, next) => {
-    if (!next) return;
-    onChange(next);
-  };
+  const handleChange = (_, v) => onChange(v);
 
   return (
-    <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-      <ToggleButtonGroup size="small" exclusive value={value} onChange={handleChange}>
-        <ToggleButton value="preview">Preview</ToggleButton>
-        <ToggleButton value="visualize">Visualizations</ToggleButton>
-      </ToggleButtonGroup>
+    <Box sx={{ width: "100%" }}>
+      <Tabs
+        value={value}
+        onChange={handleChange}
+        variant="scrollable"
+        allowScrollButtonsMobile
+        sx={{
+          minHeight: 40,
+          "& .MuiTab-root": { minHeight: 40, textTransform: "none", fontWeight: 800 },
+        }}
+      >
+        <Tooltip title="View dataset preview (table/CSV/JSON)">
+          <Tab value="preview" label="Preview" />
+        </Tooltip>
+        <Tooltip title="Explore charts, correlations, and optional AI insights">
+          <Tab value="visualize" label="Visualize" />
+        </Tooltip>
+      </Tabs>
     </Box>
   );
 };
