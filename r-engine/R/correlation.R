@@ -1,6 +1,8 @@
 # R/correlation.R
 library(jsonlite)
 
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
 is_empty_correlation_config <- function(cfg) {
   if (is.null(cfg)) return(TRUE)
   if (!is.list(cfg)) return(TRUE)
@@ -10,7 +12,8 @@ is_empty_correlation_config <- function(cfg) {
   FALSE
 }
 
-normalize_correlation_config <- function(cfg) {
+# ---- legacy single-analysis normalizer ----
+normalize_single_correlation_config <- function(cfg) {
   if (is.null(cfg)) return(NULL)
 
   if (is.character(cfg) && nzchar(cfg)) {
@@ -48,8 +51,9 @@ normalize_correlation_config <- function(cfg) {
   )
 }
 
-compute_correlation_analysis <- function(df, cfg) {
-  cfg <- normalize_correlation_config(cfg)
+# ---- compute one analysis (legacy-compatible) ----
+compute_correlation_analysis_single <- function(df, cfg) {
+  cfg <- normalize_single_correlation_config(cfg)
   if (is_empty_correlation_config(cfg)) return(NULL)
 
   requested <- cfg$columns
@@ -95,7 +99,6 @@ compute_correlation_analysis <- function(df, cfg) {
   }
 
   sub <- sub[, use_cols, drop = FALSE]
-
   cor_mat <- stats::cor(sub, use = "pairwise.complete.obs", method = cfg$method)
 
   p <- ncol(cor_mat)
@@ -109,7 +112,7 @@ compute_correlation_analysis <- function(df, cfg) {
       pairs[[idx]] <- list(
         col1 = colnames(cor_mat)[i],
         col2 = colnames(cor_mat)[j],
-        r = unbox(as.numeric(r))
+        r = jsonlite::unbox(as.numeric(r))
       )
       idx <- idx + 1
     }
@@ -123,14 +126,14 @@ compute_correlation_analysis <- function(df, cfg) {
   }
 
   out <- list(
-    enabled = unbox(TRUE),
-    method = unbox(cfg$method),
+    enabled = jsonlite::unbox(TRUE),
+    method = jsonlite::unbox(cfg$method),
     requested_columns = requested,
     used_columns = use_cols,
     missing_columns = missing,
     non_numeric_columns = non_numeric,
     constant_columns = const_cols,
-    n_used = unbox(length(use_cols)),
+    n_used = jsonlite::unbox(length(use_cols)),
     top_pairs = pairs
   )
 
@@ -138,8 +141,85 @@ compute_correlation_analysis <- function(df, cfg) {
     out$matrix <- cor_mat
   } else if (isTRUE(cfg$includeMatrix) && length(use_cols) > cfg$maxMatrixCols) {
     out$matrix <- NULL
-    out$matrix_note <- unbox("Matrix omitted due to size limit.")
+    out$matrix_note <- jsonlite::unbox("Matrix omitted due to size limit.")
   }
 
   out
+}
+
+# ---- NEW: multi-analysis entry point ----
+# Accepts either:
+# 1) legacy single analysis: { columns, method, ... }
+# 2) multi envelope: { version:"1.0", primaryId, analyses:[{id,name,enabled,columns,...}, ...] }
+compute_correlation_analysis <- function(df, cfg) {
+  if (is.null(cfg)) return(NULL)
+
+  # Parse JSON string if needed
+  if (is.character(cfg) && nzchar(cfg)) {
+    cfg <- jsonlite::fromJSON(cfg, simplifyVector = FALSE)
+  }
+  if (!is.list(cfg)) stop("correlationConfig must be an object")
+
+  # Multi envelope support
+  if (!is.null(cfg$version) && as.character(cfg$version) == "1.0" && is.list(cfg$analyses)) {
+    analyses_in <- cfg$analyses
+    out_analyses <- list()
+
+    ran <- 0L
+    skipped <- 0L
+
+    for (i in seq_along(analyses_in)) {
+      a <- analyses_in[[i]]
+      if (!is.list(a)) next
+
+      id <- as.character(a$id %||% paste0("analysis_", i))
+      name <- as.character(a$name %||% paste0("Correlation ", i))
+
+      enabled <- isTRUE(a$enabled %||% FALSE)
+      if (!enabled) {
+        skipped <- skipped + 1L
+        out_analyses[[length(out_analyses) + 1L]] <- list(
+          id = jsonlite::unbox(id),
+          name = jsonlite::unbox(name),
+          enabled = jsonlite::unbox(FALSE),
+          message = jsonlite::unbox("Skipped: disabled.")
+        )
+        next
+      }
+
+      # Run as single analysis using the same function
+      ran <- ran + 1L
+      res <- tryCatch({
+        compute_correlation_analysis_single(df, a)
+      }, error = function(e) {
+        list(enabled = jsonlite::unbox(TRUE), error = jsonlite::unbox(e$message))
+      })
+
+      out_analyses[[length(out_analyses) + 1L]] <- list(
+        id = jsonlite::unbox(id),
+        name = jsonlite::unbox(name),
+        enabled = jsonlite::unbox(TRUE),
+        result = res
+      )
+    }
+
+    primaryId <- as.character(cfg$primaryId %||% "")
+    if (primaryId == "" && length(out_analyses) > 0) {
+      primaryId <- out_analyses[[1]]$id
+    }
+
+    return(list(
+      version = jsonlite::unbox("1.0"),
+      primaryId = jsonlite::unbox(primaryId),
+      summary = list(
+        total = jsonlite::unbox(length(out_analyses)),
+        ran = jsonlite::unbox(ran),
+        skipped = jsonlite::unbox(skipped)
+      ),
+      analyses = out_analyses
+    ))
+  }
+
+  # Fallback: legacy single config
+  compute_correlation_analysis_single(df, cfg)
 }

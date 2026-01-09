@@ -16,10 +16,8 @@ import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Box from "@mui/material/Box";
 
-// keep your existing formatBytes/formatDateTime as-is
-
 const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
-  const [mode, setMode] = useState("original"); // original | processed
+  const [mode, setMode] = useState("original"); // original | processed (used in Preview section)
   const [section, setSection] = useState("preview"); // preview | visualize
   const [viewFormat, setViewFormat] = useState("table"); // table | csv | json
 
@@ -48,13 +46,10 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
     return {
       id: dataset.id,
       name: dataset.originalName || dataset.name,
-      size: (dataset.sizeBytes !== null && dataset.sizeBytes !== undefined)
-        ? dataset.sizeBytes
-        : null,
+      size: dataset.sizeBytes !== null && dataset.sizeBytes !== undefined ? dataset.sizeBytes : null,
       uploadedAt: dataset.createdAt,
       totalRows: processingSummary.processedRows ?? null,
 
-      // legacy tasks list (may be empty in config-mode)
       preprocessingTasks: dataset.job?.preprocessingTasks || [],
 
       categoricalColumns: categoricalCount,
@@ -82,8 +77,6 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
   const handleModeChange = (newMode) => setMode(newMode);
 
   // Resolve requested config source robustly:
-  // - job.preprocessingConfig is the most direct
-  // - metadata.requested_config often contains normalized forms (sometimes with column scalar bugs)
   const requestedPreprocessingConfig =
     dataset?.job?.preprocessingConfig ||
     processingSummary?.metadata?.requested_config ||
@@ -160,6 +153,7 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
                 }}
               >
                 <DatasetViewToggle mode={mode} onChange={handleModeChange} />
+
                 <FlexBox
                   sx={{
                     display: "flex",
@@ -171,7 +165,7 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
                 >
                   <DatasetViewSectionToggle value={section} onChange={setSection} />
 
-                  {/* Optional AI inference: show toggle only on Visualize to avoid clutter */}
+                  {/* Optional AI inference: show toggle only on Visualize */}
                   {section === "visualize" && (
                     <Box sx={{ display: "flex", alignItems: "center" }}>
                       <FormControlLabel

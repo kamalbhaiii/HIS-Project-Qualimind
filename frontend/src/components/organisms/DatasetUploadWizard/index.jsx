@@ -1,4 +1,4 @@
-// components/organisms/DatasetUploadWizard.jsx
+// src/components/organisms/DatasetUploadWizard.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import Papa from "papaparse";
@@ -20,7 +20,6 @@ import { buildPreprocessingConfig } from "../../../lib/buildPreprocessingConfig"
 
 import WizardStepShell from "../../molecules/WizardStepShell";
 import Step3CorrelationOrchestrator from "../Step3CorrelationOrchestrator";
-import { buildCorrelationConfig } from "../../../lib/buildCorrelationConfig";
 
 function validatePreprocessingConfig(cfg) {
   if (!cfg) return { ok: false, message: "preprocessingConfig is missing" };
@@ -73,6 +72,22 @@ function isCategoricalType(t) {
   return s === "categorical" || s === "factor" || s === "character" || s === "string";
 }
 
+function isPlainObject(x) {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
+function hasAnyValidEnabledCorrelation(correlationConfig) {
+  if (!isPlainObject(correlationConfig)) return false;
+  if (String(correlationConfig.version || "") !== "1.0") return false;
+  if (!Array.isArray(correlationConfig.analyses)) return false;
+
+  return correlationConfig.analyses.some((a) => {
+    if (!a || a.enabled !== true) return false;
+    const cols = Array.isArray(a.columns) ? a.columns.filter(Boolean) : [];
+    return cols.length >= 2;
+  });
+}
+
 export default function DatasetUploadWizard({ open, file, onClose, onUploaded }) {
   const { showToast } = useToast();
 
@@ -88,7 +103,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   const [datasetName, setDatasetName] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  // Step-2 state (Round-2): overrides are the source of truth
+  // Step-2 state: overrides are the source of truth
   const [defaults, setDefaults] = useState(() =>
     ensureDefaults({
       categoricalMissing: "categorical_unknown",
@@ -102,7 +117,6 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     })
   );
 
-  // overrides[col] holds explicit column-level ops
   const [overrides, setOverrides] = useState({});
   const [preprocessingConfig, setPreprocessingConfig] = useState(null);
 
@@ -112,14 +126,22 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   const [customConfigParsed, setCustomConfigParsed] = useState(null);
   const [customConfigError, setCustomConfigError] = useState(null);
 
-  // Step-3 correlation state
+  // Step-3 correlation state (NEW: multi-run correlationConfig object)
   const [correlationForm, setCorrelationForm] = useState({
-    enabled: false,
-    columns: [],
-    method: "pearson",
-    topK: 10,
-    minAbs: 0.0,
-    includeMatrix: true,
+    version: "1.0",
+    primaryId: "primary",
+    analyses: [
+      {
+        id: "primary",
+        name: "Correlation 1",
+        enabled: false,
+        columns: [],
+        method: "pearson",
+        topK: 10,
+        minAbs: 0.0,
+        includeMatrix: true,
+      },
+    ],
   });
 
   useEffect(() => {
@@ -143,13 +165,22 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     setCustomConfigParsed(null);
     setCustomConfigError(null);
 
+    // reset correlation (multi-run shape)
     setCorrelationForm({
-      enabled: false,
-      columns: [],
-      method: "pearson",
-      topK: 10,
-      minAbs: 0.0,
-      includeMatrix: true,
+      version: "1.0",
+      primaryId: "primary",
+      analyses: [
+        {
+          id: "primary",
+          name: "Correlation 1",
+          enabled: false,
+          columns: [],
+          method: "pearson",
+          topK: 10,
+          minAbs: 0.0,
+          includeMatrix: true,
+        },
+      ],
     });
 
     const setFromCsvString = (csvString) => {
@@ -202,16 +233,12 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     return (selectedColumns || []).some((c) => isCategoricalType(columnTypes?.[c]));
   }, [selectedColumns, columnTypes]);
 
-  // LIVE config generation from overrides ONLY (unless custom config is used)
+  // LIVE preprocessing config generation from overrides ONLY (unless custom config is used)
   useEffect(() => {
     const safeDefaults = ensureDefaults(defaults);
     setDefaults(safeDefaults);
 
-    if (useCustomConfig) {
-      // config editor is the source of truth; preprocessingConfig displayed can still be liveConfig
-      // but we do not override it here.
-      return;
-    }
+    if (useCustomConfig) return;
 
     const hasOverrides = overrides && Object.keys(overrides).length > 0;
     if (!hasOverrides) {
@@ -225,7 +252,6 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       overrides,
     });
 
-    // If config ends up empty, treat as "no preprocessing"
     if (!cfg?.steps?.length) {
       setPreprocessingConfig(null);
       return;
@@ -254,7 +280,6 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
 
     const cfg = useCustomConfig ? customConfigParsed : preprocessingConfig;
     if (!cfg) {
-      // overrides exist but config is empty/invalid
       return showToast("No valid preprocessing configuration to apply.", "warning");
     }
 
@@ -327,18 +352,15 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
         }
       }
 
-      // correlation config
-      const corrToSend = buildCorrelationConfig({
-        enabled: correlationForm.enabled,
-        selectedColumns: correlationForm.columns,
-        method: correlationForm.method,
-        topK: correlationForm.topK,
-        minAbs: correlationForm.minAbs,
-        includeMatrix: correlationForm.includeMatrix,
-      });
+      // Correlation config:
+      // Send the whole multi-run object, but only if at least one enabled analysis is valid (>=2 cols).
+      const corrToSend = hasAnyValidEnabledCorrelation(correlationForm) ? correlationForm : null;
 
-      if (correlationForm.enabled && (!corrToSend || !Array.isArray(corrToSend.columns) || corrToSend.columns.length < 2)) {
-        showToast("Correlation enabled, but you must select at least 2 numeric columns. Correlation will be skipped.", "warning");
+      if (correlationForm?.analyses?.some((a) => a?.enabled === true) && !corrToSend) {
+        showToast(
+          "Correlation enabled for at least one analysis, but each enabled analysis must select at least 2 numeric columns. Correlation will be skipped.",
+          "warning"
+        );
       }
 
       const res = await uploadDataset({
@@ -346,7 +368,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
         name: finalName,
         preprocessingTasks: [], // legacy; keep empty
         preprocessingConfig: cfgToSend, // null => strict "do nothing"
-        correlationConfig: corrToSend,
+        correlationConfig: corrToSend, // NEW: multi-run object OR null
       });
 
       showToast("Dataset uploaded successfully!", "success");
@@ -409,7 +431,11 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                     Columns
                   </Typography>
-                  <ColumnSelectionList columns={columns} selectedColumns={selectedColumns} onToggleColumn={handleToggleColumn} />
+                  <ColumnSelectionList
+                    columns={columns}
+                    selectedColumns={selectedColumns}
+                    onToggleColumn={handleToggleColumn}
+                  />
                 </FlexBox>
               </FlexBox>
             </FlexBox>

@@ -144,7 +144,9 @@ clean_handler <- function(req, res, jobId) {
   processed_df <- result$data
   metadata <- result$metadata
 
-  # Correlation (optional)
+  # Correlation (optional) — now supports:
+  # - legacy single config
+  # - multi-run envelope (version 1.0)
   corr_out <- NULL
   if (!is.null(correlation_config)) {
     corr_out <- tryCatch({
