@@ -1,8 +1,9 @@
-import React from 'react';
-import PropTypes from 'prop-types';
+// src/components/organisms/AISuggestionConsoleModal.jsx
+import React from "react";
+import PropTypes from "prop-types";
 
-import AppModal from '../../atoms/AppModal';
-import AISuggestionTerminal from '../../molecules/AISuggestionTerminal';
+import AppModal from "../../atoms/AppModal";
+import AISuggestionTerminal from "../../molecules/AISuggestionTerminal";
 
 export default function AISuggestionConsoleModal({
   open,
@@ -14,7 +15,14 @@ export default function AISuggestionConsoleModal({
   onReject,
 }) {
   return (
-    <AppModal open={open} title="AI Suggestion" onClose={onClose} maxWidth="md">
+    <AppModal
+      open={open}
+      title="AI Suggestion"
+      subtitle="Review the recommendation and accept to apply it as a custom preprocessing configuration."
+      onClose={onClose}
+      maxWidth="md"
+      disableBackdropClose={!!loading}
+    >
       <AISuggestionTerminal
         open={open}
         suggestion={suggestion}
@@ -36,4 +44,10 @@ AISuggestionConsoleModal.propTypes = {
   error: PropTypes.string,
   onAccept: PropTypes.func.isRequired,
   onReject: PropTypes.func.isRequired,
+};
+
+AISuggestionConsoleModal.defaultProps = {
+  suggestion: null,
+  loading: false,
+  error: null,
 };

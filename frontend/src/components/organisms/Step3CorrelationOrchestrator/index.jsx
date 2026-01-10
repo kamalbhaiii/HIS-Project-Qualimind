@@ -5,25 +5,9 @@ import PropTypes from "prop-types";
 import FlexBox from "../../atoms/FlexBox";
 import Typography from "../../atoms/CustomTypography";
 import Button from "../../atoms/CustomButton";
+import ModeTabs from "../../atoms/ModeTabs";
+import SectionCard from "../../atoms/SectionCard";
 import CorrelationConfigForm from "../../molecules/CorrelationConfigForm";
-
-/**
- * Step 3 Correlation Orchestrator
- *
- * Output contract (NEW, single-field, multi-run object):
- * correlationConfig = {
- *   version: "1.0",
- *   primaryId: string,
- *   analyses: [
- *     { id, name, enabled, columns, method, topK, minAbs, includeMatrix }
- *   ]
- * }
- *
- * Notes:
- * - UI source-of-truth is local analyses list; it does not collapse.
- * - Always emits the NEW correlationConfig object (even if only 1 analysis).
- * - Parent should send correlationConfig as-is to backend.
- */
 
 /* ----------------------- helpers ----------------------- */
 
@@ -40,6 +24,40 @@ function makeId() {
   return `corr_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function safeJsonStringify(obj) {
+  try {
+    return JSON.stringify(obj ?? null, null, 2);
+  } catch (e) {
+    return "";
+  }
+}
+
+function tryParseJson(txt) {
+  try {
+    const parsed = JSON.parse(txt);
+    return { ok: true, value: parsed, error: null };
+  } catch (e) {
+    return { ok: false, value: null, error: e?.message || "Invalid JSON" };
+  }
+}
+
+function normalizeMethod(m) {
+  const v = String(m || "").toLowerCase().trim();
+  if (v === "spearman") return "spearman";
+  if (v === "kendall") return "kendall";
+  return "pearson";
+}
+
+function normalizeNumber(x, def) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : def;
+}
+
+function clamp(n, lo, hi) {
+  if (!Number.isFinite(n)) return n;
+  return Math.max(lo, Math.min(hi, n));
+}
+
 function ensureAnalysisDefaults(a) {
   const base = isPlainObject(a) ? a : {};
   return {
@@ -47,97 +65,66 @@ function ensureAnalysisDefaults(a) {
     name: safeName(base.name, "Correlation"),
     enabled: base.enabled === true,
     columns: Array.isArray(base.columns) ? base.columns.filter(Boolean) : [],
-    method: base.method || "pearson",
-    topK: Number.isFinite(Number(base.topK)) ? Number(base.topK) : 10,
-    minAbs: Number.isFinite(Number(base.minAbs)) ? Number(base.minAbs) : 0.0,
+    method: normalizeMethod(base.method || "pearson"),
+    topK: clamp(normalizeNumber(base.topK, 10), 1, 200),
+    minAbs: clamp(normalizeNumber(base.minAbs, 0.0), 0, 1),
     includeMatrix: base.includeMatrix !== false,
   };
 }
 
-/**
- * Normalize incoming correlationValue into local state:
- * localState = { analyses: [...], primaryId }
- *
- * Accepted incoming shapes:
- * - NEW: { version:"1.0", primaryId, analyses:[...] }
- * - LEGACY (still tolerated for hydration): { enabled, columns, method, ... }
- */
-function normalizeFromProps(correlationValue) {
-  // NEW multi-run object
-  if (
-    isPlainObject(correlationValue) &&
-    String(correlationValue.version || "") === "1.0" &&
-    Array.isArray(correlationValue.analyses)
-  ) {
-    const analyses = correlationValue.analyses.map((a, idx) => {
-      const normalized = ensureAnalysisDefaults(a);
-      return {
-        ...normalized,
-        name: safeName(normalized.name, `Correlation ${idx + 1}`),
-      };
-    });
+function validateCorrelationConfig(cfg) {
+  if (!isPlainObject(cfg)) return { ok: false, message: "correlationConfig must be an object" };
+  if (String(cfg.version || "") !== "1.0") return { ok: false, message: 'correlationConfig.version must be "1.0"' };
+  if (!Array.isArray(cfg.analyses)) return { ok: false, message: "correlationConfig.analyses must be an array" };
+  if (cfg.analyses.length === 0) return { ok: false, message: "correlationConfig.analyses must not be empty" };
 
-    const primaryIdRaw = String(correlationValue.primaryId || "");
-    const primaryId =
-      primaryIdRaw && analyses.some((x) => x.id === primaryIdRaw) ? primaryIdRaw : analyses[0]?.id;
+  const ids = new Set();
+  for (let i = 0; i < cfg.analyses.length; i += 1) {
+    const a = cfg.analyses[i];
+    if (!isPlainObject(a)) return { ok: false, message: `analyses[${i}] must be an object` };
+    if (!a.id || typeof a.id !== "string") return { ok: false, message: `analyses[${i}].id is required` };
+    if (ids.has(a.id)) return { ok: false, message: `Duplicate analyses id: ${a.id}` };
+    ids.add(a.id);
 
-    return {
-      analyses: analyses.length
-        ? analyses
-        : [
-            ensureAnalysisDefaults({
-              id: "primary",
-              name: "Correlation 1",
-              enabled: false,
-              columns: [],
-              method: "pearson",
-              topK: 10,
-              minAbs: 0.0,
-              includeMatrix: true,
-            }),
-          ],
-      primaryId: primaryId || analyses[0]?.id || "primary",
-    };
+    const cols = Array.isArray(a.columns) ? a.columns.filter(Boolean) : [];
+    if (a.enabled === true && cols.length < 2) {
+      return { ok: false, message: `analyses[${i}] is enabled but has fewer than 2 columns` };
+    }
   }
 
-  // LEGACY single object (hydrate into one analysis)
-  const legacy = isPlainObject(correlationValue) ? correlationValue : {};
-  return {
-    analyses: [
-      ensureAnalysisDefaults({
-        id: "primary",
-        name: "Correlation 1",
-        enabled: legacy.enabled === true,
-        columns: legacy.columns,
-        method: legacy.method,
-        topK: legacy.topK,
-        minAbs: legacy.minAbs,
-        includeMatrix: legacy.includeMatrix,
-      }),
-    ],
-    primaryId: "primary",
-  };
+  const primaryId = String(cfg.primaryId || "");
+  if (primaryId && !ids.has(primaryId)) {
+    return { ok: false, message: "correlationConfig.primaryId must match an existing analysis id" };
+  }
+
+  return { ok: true };
 }
 
-/**
- * Build emitted correlationConfig object (single field) for parent/backend.
- * If NO analyses are enabled or no analysis has >=2 columns, caller can decide to send null.
- */
-function buildCorrelationConfigPayload({ analyses, primaryId }) {
-  return {
-    version: "1.0",
-    primaryId: String(primaryId || analyses?.[0]?.id || "primary"),
-    analyses: analyses.map((a) => ({
-      id: a.id,
-      name: a.name,
-      enabled: a.enabled === true,
-      columns: Array.isArray(a.columns) ? a.columns.filter(Boolean) : [],
-      method: a.method || "pearson",
-      topK: Number.isFinite(Number(a.topK)) ? Number(a.topK) : 10,
-      minAbs: Number.isFinite(Number(a.minAbs)) ? Number(a.minAbs) : 0.0,
-      includeMatrix: a.includeMatrix !== false,
-    })),
-  };
+function normalizeCorrelationConfig(cfg) {
+  const obj = isPlainObject(cfg) ? cfg : {};
+  const analysesRaw = Array.isArray(obj.analyses) ? obj.analyses : [];
+  const analyses = analysesRaw.length
+    ? analysesRaw.map((a, idx) => {
+        const normalized = ensureAnalysisDefaults(a);
+        return { ...normalized, name: safeName(normalized.name, `Correlation ${idx + 1}`) };
+      })
+    : [
+        ensureAnalysisDefaults({
+          id: "primary",
+          name: "Correlation 1",
+          enabled: false,
+          columns: [],
+          method: "pearson",
+          topK: 10,
+          minAbs: 0.0,
+          includeMatrix: true,
+        }),
+      ];
+
+  const primaryIdRaw = String(obj.primaryId || "");
+  const primaryId = primaryIdRaw && analyses.some((x) => x.id === primaryIdRaw) ? primaryIdRaw : analyses[0]?.id;
+
+  return { version: "1.0", primaryId: primaryId || "primary", analyses };
 }
 
 function isAnalysisValidForCorrelation(a) {
@@ -167,16 +154,42 @@ const Step3CorrelationOrchestrator = ({
   customConfigError,
   setCustomConfigError,
 }) => {
+  // tabs: builder vs json
+  const [mode, setMode] = useState("builder");
+  const tabs = useMemo(
+    () => [
+      { key: "builder", label: "Builder" },
+      { key: "json", label: "JSON Editor" },
+    ],
+    []
+  );
+
+  const handleModeChange = useCallback((arg1, arg2) => {
+    const next =
+      typeof arg2 === "string" ? arg2 : typeof arg1 === "string" ? arg1 : arg1?.target?.value;
+    setMode(next === "json" || next === "builder" ? next : "builder");
+  }, []);
+
+  // All columns (sorted)
+  const allColumns = useMemo(() => {
+    if (!columnTypes || typeof columnTypes !== "object") return [];
+    return Object.keys(columnTypes)
+      .map((c) => String(c))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+  }, [columnTypes]);
+
+  // Numeric columns (convenience)
   const numericCols = useMemo(() => {
     if (!columnTypes || typeof columnTypes !== "object") return [];
     return Object.entries(columnTypes)
-      .filter(([, t]) => String(t).toLowerCase() === "numeric")
-      .map(([col]) => col)
-      .sort((a, b) => String(a).localeCompare(String(b)));
+      .filter(([, t]) => String(t).toLowerCase() === "numeric" || String(t).toLowerCase() === "number")
+      .map(([col]) => String(col))
+      .sort((a, b) => a.localeCompare(b));
   }, [columnTypes]);
 
-  // Local source-of-truth
-  const [localState, setLocalState] = useState(() => normalizeFromProps(correlationValue));
+  // Local state mirrors incoming multi-run object
+  const [localState, setLocalState] = useState(() => normalizeCorrelationConfig(correlationValue));
   const { analyses, primaryId } = localState;
 
   // Expand/collapse panels
@@ -198,68 +211,65 @@ const Step3CorrelationOrchestrator = ({
     });
   }, []);
 
-  // Sync local state ONLY when incoming is NEW multi-run shape (e.g., hydrate/edit existing job)
+  // Keep local state in sync with parent value, but only when meaningful changes occur
   const lastSyncSigRef = useRef("");
-
   useEffect(() => {
-    const isNewShape =
-      isPlainObject(correlationValue) &&
-      String(correlationValue.version || "") === "1.0" &&
-      Array.isArray(correlationValue.analyses);
-
-    if (!isNewShape) return;
-
     const sig = JSON.stringify({
-      v: correlationValue.version,
-      primaryId: correlationValue.primaryId,
-      analyses: correlationValue.analyses.map((a) => ({
-        id: a?.id,
-        name: a?.name,
-        enabled: a?.enabled,
-        colCount: Array.isArray(a?.columns) ? a.columns.length : 0,
-        method: a?.method,
-      })),
+      v: correlationValue?.version,
+      primaryId: correlationValue?.primaryId,
+      analyses: Array.isArray(correlationValue?.analyses)
+        ? correlationValue.analyses.map((a) => ({
+            id: a?.id,
+            name: a?.name,
+            enabled: a?.enabled,
+            cols: Array.isArray(a?.columns) ? a.columns.length : 0,
+            method: a?.method,
+            topK: a?.topK,
+            minAbs: a?.minAbs,
+            includeMatrix: a?.includeMatrix,
+          }))
+        : [],
     });
 
     if (sig === lastSyncSigRef.current) return;
     lastSyncSigRef.current = sig;
 
-    setLocalState(normalizeFromProps(correlationValue));
+    setLocalState(normalizeCorrelationConfig(correlationValue));
   }, [correlationValue]);
 
   const emitToParent = useCallback(
-    (nextAnalyses, nextPrimaryId) => {
-      const payload = buildCorrelationConfigPayload({ analyses: nextAnalyses, primaryId: nextPrimaryId });
-
-      setLocalState({ analyses: nextAnalyses, primaryId: nextPrimaryId });
-
-      // Parent stores this and later sends it as correlationConfig in request body.
+    (nextState) => {
+      const payload = normalizeCorrelationConfig(nextState);
+      setLocalState(payload);
       onCorrelationChange(payload);
     },
     [onCorrelationChange]
   );
 
   const addAnalysis = useCallback(() => {
-    const next = [
-      ...analyses,
-      ensureAnalysisDefaults({
-        name: `Correlation ${analyses.length + 1}`,
-        enabled: true,
-        columns: [],
-        method: "pearson",
-        topK: 10,
-        minAbs: 0.0,
-        includeMatrix: true,
-      }),
-    ];
-    emitToParent(next, primaryId);
-  }, [analyses, emitToParent, primaryId]);
+    const next = {
+      ...localState,
+      analyses: [
+        ...analyses,
+        ensureAnalysisDefaults({
+          name: `Correlation ${analyses.length + 1}`,
+          enabled: true,
+          columns: [],
+          method: "pearson",
+          topK: 10,
+          minAbs: 0.0,
+          includeMatrix: true,
+        }),
+      ],
+    };
+    emitToParent(next);
+  }, [analyses, emitToParent, localState]);
 
   const removeAnalysis = useCallback(
     (id) => {
-      const next = analyses.filter((a) => a.id !== id);
+      const remaining = analyses.filter((a) => a.id !== id);
 
-      if (!next.length) {
+      if (!remaining.length) {
         const only = ensureAnalysisDefaults({
           id: "primary",
           name: "Correlation 1",
@@ -270,12 +280,12 @@ const Step3CorrelationOrchestrator = ({
           minAbs: 0.0,
           includeMatrix: true,
         });
-        emitToParent([only], only.id);
+        emitToParent({ version: "1.0", primaryId: only.id, analyses: [only] });
         return;
       }
 
-      const nextPrimaryId = id === primaryId ? next[0].id : primaryId;
-      emitToParent(next, nextPrimaryId);
+      const nextPrimaryId = id === primaryId ? remaining[0].id : primaryId;
+      emitToParent({ version: "1.0", primaryId: nextPrimaryId, analyses: remaining });
 
       setExpandedIds((prev) => {
         const n = new Set(prev);
@@ -290,7 +300,7 @@ const Step3CorrelationOrchestrator = ({
   const renameAnalysis = useCallback(
     (id, name) => {
       const next = analyses.map((a) => (a.id === id ? { ...a, name: safeName(name, a.name) } : a));
-      emitToParent(next, primaryId);
+      emitToParent({ version: "1.0", primaryId, analyses: next });
     },
     [analyses, emitToParent, primaryId]
   );
@@ -298,7 +308,7 @@ const Step3CorrelationOrchestrator = ({
   const setPrimary = useCallback(
     (id) => {
       if (!analyses.some((a) => a.id === id)) return;
-      emitToParent(analyses, id);
+      emitToParent({ version: "1.0", primaryId: id, analyses });
       setExpandedIds((prev) => {
         const next = new Set(prev);
         next.add(id);
@@ -310,18 +320,10 @@ const Step3CorrelationOrchestrator = ({
 
   const updateAnalysisValue = useCallback(
     (id, nextValFromForm) => {
-      const next = analyses.map((a) =>
-        a.id === id ? { ...a, ...ensureAnalysisDefaults({ ...a, ...nextValFromForm, id: a.id, name: a.name }) } : a
+      const nextAnalyses = analyses.map((a) =>
+        a.id === id ? ensureAnalysisDefaults({ ...a, ...nextValFromForm, id: a.id, name: a.name }) : a
       );
-
-      // ensureAnalysisDefaults returns a full object; we want to preserve id/name from header
-      const repaired = next.map((a) => ({
-        ...a,
-        id: a.id,
-        name: a.name,
-      }));
-
-      emitToParent(repaired, primaryId);
+      emitToParent({ version: "1.0", primaryId, analyses: nextAnalyses });
     },
     [analyses, emitToParent, primaryId]
   );
@@ -330,229 +332,356 @@ const Step3CorrelationOrchestrator = ({
   const enabledCount = useMemo(() => analyses.filter((a) => a.enabled === true).length, [analyses]);
   const validEnabledCount = useMemo(() => analyses.filter(isAnalysisValidForCorrelation).length, [analyses]);
 
+  /* ----------------------- JSON editor (full object) ----------------------- */
+
+  const [jsonText, setJsonText] = useState(() => safeJsonStringify(localState));
+  const [jsonError, setJsonError] = useState(null);
+  const [jsonValidatedAt, setJsonValidatedAt] = useState(null);
+
+  // keep JSON editor updated from state unless user is currently in invalid JSON
+  useEffect(() => {
+    const parsed = tryParseJson(jsonText);
+    if (!parsed.ok) return; // user is typing invalid JSON, do not overwrite
+    setJsonText(safeJsonStringify(localState));
+    setJsonError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localState]);
+
+  const copyToClipboard = useCallback(async (txt) => {
+    try {
+      await navigator.clipboard.writeText(String(txt || ""));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleFormat = useCallback(() => {
+    const parsed = tryParseJson(jsonText);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      return;
+    }
+    setJsonText(safeJsonStringify(parsed.value));
+    setJsonError(null);
+  }, [jsonText]);
+
+  const handleNormalize = useCallback(() => {
+    const parsed = tryParseJson(jsonText);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      return;
+    }
+    const normalized = normalizeCorrelationConfig(parsed.value);
+    setJsonText(safeJsonStringify(normalized));
+    setJsonError(null);
+  }, [jsonText]);
+
+  const handleValidateAndApply = useCallback(() => {
+    const parsed = tryParseJson(jsonText);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      return;
+    }
+    const normalized = normalizeCorrelationConfig(parsed.value);
+    const v = validateCorrelationConfig(normalized);
+    if (!v.ok) {
+      setJsonError(v.message || "Invalid correlationConfig.");
+      return;
+    }
+
+    setJsonError(null);
+    setJsonValidatedAt(new Date().toISOString());
+    emitToParent(normalized);
+
+    // ensure UI expands primary
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.add(normalized.primaryId);
+      return next;
+    });
+  }, [emitToParent, jsonText]);
+
   return (
     <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {/* Intro / actions */}
-      <FlexBox
-        sx={{
-          border: "1px solid rgba(0,0,0,0.08)",
-          borderRadius: 2,
-          padding: 1.5,
-          background: "rgba(0,0,0,0.02)",
-        }}
-      >
-        <FlexBox
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 1,
-            flexWrap: "wrap",
-          }}
-        >
-          <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.5, flex: 1, minWidth: 260 }}>
-            <Typography variant="body2" color="textSecondary">
-              Correlation is optional. You can create multiple correlation analyses with different numeric-column
-              selections and parameters. All analyses will be included in the upload request under a single
-              correlationConfig object.
-            </Typography>
+      <SectionCard sx={{ padding: 0 }}>
+        <ModeTabs value={mode} onChange={handleModeChange} tabs={tabs} />
+      </SectionCard>
 
-            <Typography variant="caption" color="textSecondary">
-              Enabled: {enabledCount} · Valid (≥2 cols): {validEnabledCount}
-            </Typography>
-          </FlexBox>
-
-          <Button variant="contained" color="primary" onClick={addAnalysis}>
-            Add correlation analysis
-          </Button>
-        </FlexBox>
-      </FlexBox>
-
-      {/* Analyses list */}
-      <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {analyses.map((a, idx) => {
-          const isPrimary = a.id === primaryId;
-          const selectedCount = Array.isArray(a.columns) ? a.columns.length : 0;
-          const methodLabel = a.method || "pearson";
-          const isExpanded = expandedIds.has(a.id);
-          const isValid = isAnalysisValidForCorrelation(a);
-
-          return (
+      {mode === "builder" && (
+        <>
+          <SectionCard>
             <FlexBox
-              key={a.id}
               sx={{
-                border: "1px solid rgba(0,0,0,0.10)",
-                borderRadius: 2,
-                padding: 1.5,
-                background: "white",
                 display: "flex",
-                flexDirection: "column",
-                gap: 1.25,
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 1,
+                flexWrap: "wrap",
               }}
             >
-              {/* Header */}
-              <FlexBox
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 1,
-                  flexWrap: "wrap",
-                }}
-              >
-                <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 260, flex: 1 }}>
-                  <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                      {`Analysis ${idx + 1}`}
-                    </Typography>
+              <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.5, flex: 1, minWidth: 260 }}>
+                <Typography variant="body2" color="textSecondary">
+                  Correlation/association is optional. Create multiple analyses with different column selections and parameters.
+                  Mixed types are supported. The selected method applies only to numeric×numeric pairs.
+                </Typography>
 
-                    {isPrimary && (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 800,
-                          padding: "3px 10px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(0,0,0,0.15)",
-                          background: "rgba(0,0,0,0.03)",
-                        }}
-                      >
-                        Primary
-                      </Typography>
-                    )}
-
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontWeight: 700,
-                        padding: "3px 10px",
-                        borderRadius: 999,
-                        border: "1px solid rgba(0,0,0,0.12)",
-                        background: a.enabled ? "rgba(0,0,0,0.03)" : "rgba(0,0,0,0.01)",
-                        opacity: a.enabled ? 1 : 0.65,
-                      }}
-                    >
-                      {a.enabled ? "Enabled" : "Disabled"}
-                    </Typography>
-
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontWeight: 700,
-                        padding: "3px 10px",
-                        borderRadius: 999,
-                        border: "1px solid rgba(0,0,0,0.12)",
-                        background: "rgba(0,0,0,0.02)",
-                      }}
-                    >
-                      {selectedCount} cols · {String(methodLabel).toUpperCase()}
-                    </Typography>
-
-                    {a.enabled && (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 800,
-                          padding: "3px 10px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(0,0,0,0.12)",
-                          background: isValid ? "rgba(0,0,0,0.02)" : "rgba(0,0,0,0.01)",
-                          opacity: isValid ? 1 : 0.65,
-                        }}
-                      >
-                        {isValid ? "Valid" : "Needs ≥2 cols"}
-                      </Typography>
-                    )}
-                  </FlexBox>
-
-                  <input
-                    value={a.name}
-                    onChange={(e) => renameAnalysis(a.id, e.target.value)}
-                    placeholder={`Correlation ${idx + 1}`}
-                    style={{
-                      marginTop: 6,
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(0,0,0,0.15)",
-                      outline: "none",
-                      fontSize: 13,
-                    }}
-                  />
-                </FlexBox>
-
-                <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-                  <Button variant="outlined" color="inherit" onClick={() => toggleExpanded(a.id)}>
-                    {isExpanded ? "Collapse" : "Expand"}
-                  </Button>
-
-                  {!isPrimary && (
-                    <Button variant="outlined" color="inherit" onClick={() => setPrimary(a.id)}>
-                      Set primary
-                    </Button>
-                  )}
-
-                  <Button
-                    variant="outlined"
-                    color="inherit"
-                    onClick={() => removeAnalysis(a.id)}
-                    disabled={analyses.length === 1}
-                  >
-                    Remove
-                  </Button>
-                </FlexBox>
+                <Typography variant="caption" color="textSecondary">
+                  Enabled: {enabledCount} · Valid (≥2 cols): {validEnabledCount}
+                </Typography>
               </FlexBox>
 
-              {/* Form */}
-              {isExpanded && (
-                <CorrelationConfigForm
-                  numericColumns={numericCols}
-                  // CorrelationConfigForm expects the old single-config shape.
-                  // We pass the analysis fields as the "value" object.
-                  value={{
-                    enabled: a.enabled,
-                    columns: a.columns,
-                    method: a.method,
-                    topK: a.topK,
-                    minAbs: a.minAbs,
-                    includeMatrix: a.includeMatrix,
-                  }}
-                  onChange={(nextVal) =>
-                    updateAnalysisValue(a.id, {
-                      ...a,
-                      enabled: nextVal?.enabled === true,
-                      columns: nextVal?.columns,
-                      method: nextVal?.method,
-                      topK: nextVal?.topK,
-                      minAbs: nextVal?.minAbs,
-                      includeMatrix: nextVal?.includeMatrix,
-                    })
-                  }
-                  livePreprocessingConfig={livePreprocessingConfig}
-                  preprocessingConfigEffective={preprocessingConfigEffective}
-                  setPreprocessingConfigEffective={setPreprocessingConfigEffective}
-                  validatePreprocessingConfig={validatePreprocessingConfig}
-                  useCustomConfig={useCustomConfig}
-                  setUseCustomConfig={setUseCustomConfig}
-                  customConfigText={customConfigText}
-                  setCustomConfigText={setCustomConfigText}
-                  setCustomConfigParsed={setCustomConfigParsed}
-                  customConfigError={customConfigError}
-                  setCustomConfigError={setCustomConfigError}
-                />
-              )}
+              <Button variant="contained" color="primary" onClick={addAnalysis}>
+                Add correlation analysis
+              </Button>
             </FlexBox>
-          );
-        })}
-      </FlexBox>
+          </SectionCard>
+
+          {/* Analyses list */}
+          <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {analyses.map((a, idx) => {
+              const isPrimary = a.id === primaryId;
+              const selectedCount = Array.isArray(a.columns) ? a.columns.length : 0;
+              const methodLabel = a.method || "pearson";
+              const isExpanded = expandedIds.has(a.id);
+              const isValid = isAnalysisValidForCorrelation(a);
+
+              return (
+                <FlexBox
+                  key={a.id}
+                  sx={{
+                    border: "1px solid rgba(0,0,0,0.10)",
+                    borderRadius: 2,
+                    padding: 1.5,
+                    background: "white",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 1.25,
+                  }}
+                >
+                  {/* Header */}
+                  <FlexBox
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 1,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 260, flex: 1 }}>
+                      <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                          {`Analysis ${idx + 1}`}
+                        </Typography>
+
+                        {isPrimary && (
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontWeight: 800,
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                              border: "1px solid rgba(0,0,0,0.15)",
+                              background: "rgba(0,0,0,0.03)",
+                            }}
+                          >
+                            Primary
+                          </Typography>
+                        )}
+
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontWeight: 700,
+                            padding: "3px 10px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(0,0,0,0.12)",
+                            background: a.enabled ? "rgba(0,0,0,0.03)" : "rgba(0,0,0,0.01)",
+                            opacity: a.enabled ? 1 : 0.65,
+                          }}
+                        >
+                          {a.enabled ? "Enabled" : "Disabled"}
+                        </Typography>
+
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontWeight: 700,
+                            padding: "3px 10px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(0,0,0,0.12)",
+                            background: "rgba(0,0,0,0.02)",
+                          }}
+                        >
+                          {selectedCount} cols · {String(methodLabel).toUpperCase()}
+                        </Typography>
+
+                        {a.enabled && (
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontWeight: 800,
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                              border: "1px solid rgba(0,0,0,0.12)",
+                              background: isValid ? "rgba(0,0,0,0.02)" : "rgba(0,0,0,0.01)",
+                              opacity: isValid ? 1 : 0.65,
+                            }}
+                          >
+                            {isValid ? "Valid" : "Needs ≥2 cols"}
+                          </Typography>
+                        )}
+                      </FlexBox>
+
+                      <input
+                        value={a.name}
+                        onChange={(e) => renameAnalysis(a.id, e.target.value)}
+                        placeholder={`Correlation ${idx + 1}`}
+                        style={{
+                          marginTop: 6,
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(0,0,0,0.15)",
+                          outline: "none",
+                          fontSize: 13,
+                        }}
+                      />
+                    </FlexBox>
+
+                    <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                      <Button variant="outlined" color="inherit" onClick={() => toggleExpanded(a.id)}>
+                        {isExpanded ? "Collapse" : "Expand"}
+                      </Button>
+
+                      {!isPrimary && (
+                        <Button variant="outlined" color="inherit" onClick={() => setPrimary(a.id)}>
+                          Set primary
+                        </Button>
+                      )}
+
+                      <Button
+                        variant="outlined"
+                        color="inherit"
+                        onClick={() => removeAnalysis(a.id)}
+                        disabled={analyses.length === 1}
+                      >
+                        Remove
+                      </Button>
+                    </FlexBox>
+                  </FlexBox>
+
+                  {/* Form */}
+                  {isExpanded && (
+                    <CorrelationConfigForm
+                      numericColumns={numericCols}
+                      allColumns={allColumns}
+                      columnTypes={columnTypes || {}}
+                      value={{
+                        enabled: a.enabled,
+                        columns: a.columns,
+                        method: a.method,
+                        topK: a.topK,
+                        minAbs: a.minAbs,
+                        includeMatrix: a.includeMatrix,
+                      }}
+                      onChange={(nextVal) =>
+                        updateAnalysisValue(a.id, {
+                          ...a,
+                          enabled: nextVal?.enabled === true,
+                          columns: nextVal?.columns,
+                          method: nextVal?.method,
+                          topK: nextVal?.topK,
+                          minAbs: nextVal?.minAbs,
+                          includeMatrix: nextVal?.includeMatrix,
+                        })
+                      }
+                      livePreprocessingConfig={livePreprocessingConfig}
+                      preprocessingConfigEffective={preprocessingConfigEffective}
+                      setPreprocessingConfigEffective={setPreprocessingConfigEffective}
+                      validatePreprocessingConfig={validatePreprocessingConfig}
+                      useCustomConfig={useCustomConfig}
+                      setUseCustomConfig={setUseCustomConfig}
+                      customConfigText={customConfigText}
+                      setCustomConfigText={setCustomConfigText}
+                      setCustomConfigParsed={setCustomConfigParsed}
+                      customConfigError={customConfigError}
+                      setCustomConfigError={setCustomConfigError}
+                    />
+                  )}
+                </FlexBox>
+              );
+            })}
+          </FlexBox>
+        </>
+      )}
+
+      {mode === "json" && (
+        <SectionCard>
+          <FlexBox sx={{ display: "flex", justifyContent: "space-between", gap: 1, flexWrap: "wrap", alignItems: "baseline" }}>
+            <FlexBox sx={{ flexDirection: "column", gap: 0.25 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                correlationConfig (multi-run)
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Edit the full object used for upload. Use Normalize to repair missing fields. Validate applies it to the builder.
+                {jsonValidatedAt ? ` Last applied: ${jsonValidatedAt}` : ""}
+              </Typography>
+            </FlexBox>
+
+            <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button variant="outlined" color="inherit" onClick={handleFormat}>
+                Format
+              </Button>
+              <Button variant="outlined" color="inherit" onClick={handleNormalize}>
+                Normalize
+              </Button>
+              <Button variant="outlined" color="inherit" onClick={() => copyToClipboard(jsonText)}>
+                Copy
+              </Button>
+              <Button variant="contained" color="primary" onClick={handleValidateAndApply}>
+                Validate & Apply
+              </Button>
+            </FlexBox>
+          </FlexBox>
+
+          <FlexBox sx={{ mt: 1 }}>
+            <textarea
+              value={jsonText}
+              onChange={(e) => {
+                setJsonText(e.target.value);
+                const parsed = tryParseJson(e.target.value);
+                if (!parsed.ok) setJsonError(parsed.error);
+                else setJsonError(null);
+              }}
+              style={{
+                width: "100%",
+                minHeight: 420,
+                padding: 12,
+                borderRadius: 12,
+                border: `1px solid ${jsonError ? "rgba(211,47,47,0.55)" : "rgba(0,0,0,0.15)"}`,
+                outline: "none",
+                fontFamily:
+                  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontSize: 12,
+                background: "white",
+              }}
+            />
+          </FlexBox>
+
+          {jsonError && (
+            <Typography variant="caption" sx={{ mt: 1 }} color="error">
+              {jsonError}
+            </Typography>
+          )}
+        </SectionCard>
+      )}
     </FlexBox>
   );
 };
 
 Step3CorrelationOrchestrator.propTypes = {
   columnTypes: PropTypes.object,
-
-  // NEW: correlationValue is expected to be correlationConfig-like object, but legacy is tolerated
   correlationValue: PropTypes.object.isRequired,
   onCorrelationChange: PropTypes.func.isRequired,
 

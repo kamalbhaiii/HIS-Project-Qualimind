@@ -21,6 +21,16 @@ import { buildPreprocessingConfig } from "../../../lib/buildPreprocessingConfig"
 import WizardStepShell from "../../molecules/WizardStepShell";
 import Step3CorrelationOrchestrator from "../Step3CorrelationOrchestrator";
 
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import Collapse from "@mui/material/Collapse";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+
 function validatePreprocessingConfig(cfg) {
   if (!cfg) return { ok: false, message: "preprocessingConfig is missing" };
   if (cfg.version !== "1.0") return { ok: false, message: 'preprocessingConfig.version must be "1.0"' };
@@ -88,6 +98,14 @@ function hasAnyValidEnabledCorrelation(correlationConfig) {
   });
 }
 
+function safeJson(obj) {
+  try {
+    return JSON.stringify(obj ?? null, null, 2);
+  } catch {
+    return "";
+  }
+}
+
 export default function DatasetUploadWizard({ open, file, onClose, onUploaded }) {
   const { showToast } = useToast();
 
@@ -103,7 +121,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   const [datasetName, setDatasetName] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  // Step-2 state: overrides are the source of truth
+  // Step-2 state
   const [defaults, setDefaults] = useState(() =>
     ensureDefaults({
       categoricalMissing: "categorical_unknown",
@@ -126,7 +144,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   const [customConfigParsed, setCustomConfigParsed] = useState(null);
   const [customConfigError, setCustomConfigError] = useState(null);
 
-  // Step-3 correlation state (NEW: multi-run correlationConfig object)
+  // Step-3 correlation state (multi-run object)
   const [correlationForm, setCorrelationForm] = useState({
     version: "1.0",
     primaryId: "primary",
@@ -143,6 +161,9 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       },
     ],
   });
+
+  // UI: preview payload
+  const [showPayloadPreview, setShowPayloadPreview] = useState(false);
 
   useEffect(() => {
     if (!file) return;
@@ -165,7 +186,9 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     setCustomConfigParsed(null);
     setCustomConfigError(null);
 
-    // reset correlation (multi-run shape)
+    setShowPayloadPreview(false);
+
+    // reset correlation
     setCorrelationForm({
       version: "1.0",
       primaryId: "primary",
@@ -293,6 +316,41 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     else if (step === 2) setStep(1);
   };
 
+  const copyToClipboard = async (txt) => {
+    try {
+      await navigator.clipboard.writeText(txt || "");
+      showToast("Copied to clipboard.", "success");
+    } catch {
+      showToast("Copy failed (clipboard blocked).", "warning");
+    }
+  };
+
+  const resolveCfgToSend = () => {
+    // preprocessing
+    let cfgToSend = null;
+
+    if (useCustomConfig) {
+      if (!customConfigParsed) return { ok: false, message: "Custom config is enabled but not valid." };
+      const v = validatePreprocessingConfig(customConfigParsed);
+      if (!v.ok) return { ok: false, message: v.message || "Invalid custom preprocessingConfig." };
+      cfgToSend = customConfigParsed;
+    } else {
+      const hasOverrides = overrides && Object.keys(overrides).length > 0;
+      if (hasOverrides && preprocessingConfig?.steps?.length) {
+        const v = validatePreprocessingConfig(preprocessingConfig);
+        if (!v.ok) return { ok: false, message: v.message || "Invalid preprocessingConfig." };
+        cfgToSend = preprocessingConfig;
+      } else {
+        cfgToSend = null;
+      }
+    }
+
+    // correlation
+    const corrToSend = hasAnyValidEnabledCorrelation(correlationForm) ? correlationForm : null;
+
+    return { ok: true, cfgToSend, corrToSend };
+  };
+
   const handleUpload = async () => {
     if (!file) return;
     setUploading(true);
@@ -324,41 +382,17 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       const finalCsvString = Papa.unparse({ fields: selectedColumns, data: filteredRows });
       const csvFile = new File([finalCsvString], finalName, { type: "text/csv" });
 
-      // Decide preprocessing config to send
-      let cfgToSend = null;
-
-      if (useCustomConfig) {
-        if (!customConfigParsed) {
-          showToast("Custom config is enabled but not valid. Fix the JSON first.", "error");
-          return;
-        }
-        const v = validatePreprocessingConfig(customConfigParsed);
-        if (!v.ok) {
-          showToast(v.message || "Invalid custom preprocessingConfig.", "error");
-          return;
-        }
-        cfgToSend = customConfigParsed;
-      } else {
-        const hasOverrides = overrides && Object.keys(overrides).length > 0;
-        if (hasOverrides && preprocessingConfig?.steps?.length) {
-          const v = validatePreprocessingConfig(preprocessingConfig);
-          if (!v.ok) {
-            showToast(v.message || "Invalid preprocessingConfig.", "error");
-            return;
-          }
-          cfgToSend = preprocessingConfig;
-        } else {
-          cfgToSend = null;
-        }
+      const resolved = resolveCfgToSend();
+      if (!resolved.ok) {
+        showToast(resolved.message || "Invalid configuration.", "error");
+        return;
       }
 
-      // Correlation config:
-      // Send the whole multi-run object, but only if at least one enabled analysis is valid (>=2 cols).
-      const corrToSend = hasAnyValidEnabledCorrelation(correlationForm) ? correlationForm : null;
+      const { cfgToSend, corrToSend } = resolved;
 
       if (correlationForm?.analyses?.some((a) => a?.enabled === true) && !corrToSend) {
         showToast(
-          "Correlation enabled for at least one analysis, but each enabled analysis must select at least 2 numeric columns. Correlation will be skipped.",
+          "Correlation enabled for at least one analysis, but each enabled analysis must select at least 2 columns. Correlation will be skipped.",
           "warning"
         );
       }
@@ -366,9 +400,9 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       const res = await uploadDataset({
         file: csvFile,
         name: finalName,
-        preprocessingTasks: [], // legacy; keep empty
-        preprocessingConfig: cfgToSend, // null => strict "do nothing"
-        correlationConfig: corrToSend, // NEW: multi-run object OR null
+        preprocessingTasks: [],
+        preprocessingConfig: cfgToSend,
+        correlationConfig: corrToSend,
       });
 
       showToast("Dataset uploaded successfully!", "success");
@@ -387,9 +421,143 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   const stepLabel = step === 0 ? "1 of 3 · Columns" : step === 1 ? "2 of 3 · Preprocessing" : "3 of 3 · Correlation";
   const stepShellTitle = step === 0 ? "Name & columns" : step === 1 ? "Tasks & configuration" : "Correlation analysis";
 
+  const hasOverrides = overrides && Object.keys(overrides).length > 0;
+  const liveStepsCount = preprocessingConfig?.steps?.length || 0;
+
+  const resolvedForPreview = useMemo(() => resolveCfgToSend(), [
+    useCustomConfig,
+    customConfigParsed,
+    preprocessingConfig,
+    overrides,
+    correlationForm,
+  ]);
+
+  const preprocessingPreview = resolvedForPreview.ok ? resolvedForPreview.cfgToSend : null;
+  const correlationPreview = resolvedForPreview.ok ? resolvedForPreview.corrToSend : null;
+
   return (
-    <AppModal open={open} title={modalTitle} onClose={onClose} maxWidth="md">
+    <AppModal
+      open={open}
+      title={modalTitle}
+      subtitle="Follow the steps to select columns, configure preprocessing, and optionally run correlation/association analysis."
+      onClose={onClose}
+      maxWidth="md"
+      disableBackdropClose={uploading}
+    >
       <WizardStepShell title={stepShellTitle} stepLabel={stepLabel} step={step}>
+        {/* Top summary (consistent, compact) */}
+        <Box
+          sx={{
+            mb: 2,
+            border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 2,
+            p: 1.5,
+            background: "rgba(0,0,0,0.015)",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 1,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 240 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+              {datasetName?.trim() ? datasetName.trim() : "Untitled dataset"}
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              Columns selected: {selectedColumns.length} · Types:{" "}
+              {hasCategorical ? "categorical " : ""}
+              {hasNumeric ? "numeric " : ""}
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+            <Chip
+              size="small"
+              label={useCustomConfig ? "Preprocessing: Custom" : hasOverrides ? "Preprocessing: Live" : "Preprocessing: None"}
+              sx={{ fontWeight: 800 }}
+            />
+            <Chip
+              size="small"
+              label={useCustomConfig ? "Steps: custom" : `${liveStepsCount} step(s)`}
+              sx={{ fontWeight: 800 }}
+              variant="outlined"
+            />
+            <Button
+              variant="outlined"
+              color="inherit"
+              size="small"
+              onClick={() => setShowPayloadPreview((v) => !v)}
+              endIcon={showPayloadPreview ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            >
+              Payload preview
+            </Button>
+          </Box>
+
+          <Collapse in={showPayloadPreview} style={{ width: "100%" }}>
+            <Divider sx={{ my: 1.25 }} />
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5 }}>
+              <Box sx={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2, p: 1, background: "white" }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                    preprocessingConfig
+                  </Typography>
+                  <Tooltip title="Copy JSON">
+                    <span>
+                      <IconButton size="small" onClick={() => copyToClipboard(safeJson(preprocessingPreview))}>
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
+                <Box
+                  sx={{
+                    mt: 1,
+                    maxHeight: 200,
+                    overflow: "auto",
+                    whiteSpace: "pre",
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {safeJson(preprocessingPreview)}
+                </Box>
+              </Box>
+
+              <Box sx={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2, p: 1, background: "white" }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                    correlationConfig
+                  </Typography>
+                  <Tooltip title="Copy JSON">
+                    <span>
+                      <IconButton size="small" onClick={() => copyToClipboard(safeJson(correlationPreview))}>
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
+                <Box
+                  sx={{
+                    mt: 1,
+                    maxHeight: 200,
+                    overflow: "auto",
+                    whiteSpace: "pre",
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {safeJson(correlationPreview)}
+                </Box>
+              </Box>
+            </Box>
+          </Collapse>
+        </Box>
+
         {/* Step 1 */}
         {step === 0 && (
           <FlexBox sx={{ flexDirection: "column", gap: 2 }}>
@@ -479,6 +647,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                 paddingTop: { xs: 1.5, md: 0 },
                 paddingBottom: { xs: 1, md: 0 },
                 zIndex: 2,
+                background: { xs: "white", md: "transparent" },
               }}
             >
               <FlexBox sx={{ justifyContent: "space-between", gap: 1, width: "100%", flexWrap: "wrap", display: "flex" }}>
@@ -521,6 +690,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                 paddingTop: { xs: 1.5, md: 0 },
                 paddingBottom: { xs: 1, md: 0 },
                 zIndex: 2,
+                background: { xs: "white", md: "transparent" },
               }}
             >
               <FlexBox sx={{ justifyContent: "space-between", gap: 1, width: "100%", flexWrap: "wrap", display: "flex" }}>
@@ -544,4 +714,9 @@ DatasetUploadWizard.propTypes = {
   file: PropTypes.instanceOf(File),
   onClose: PropTypes.func.isRequired,
   onUploaded: PropTypes.func,
+};
+
+DatasetUploadWizard.defaultProps = {
+  file: null,
+  onUploaded: null,
 };

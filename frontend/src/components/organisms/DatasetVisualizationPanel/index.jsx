@@ -141,6 +141,49 @@ function normalizeCorrelationMeta(corr) {
   return { mode: "none", analyses: [] };
 }
 
+/* -------- NEW: pair metric helpers (supports mixed metrics + legacy r) -------- */
+
+function safeMetricFromPair(p) {
+  if (!p || typeof p !== "object") return "association";
+  const m = String(p.metric || "").trim();
+  if (m) return m;
+  // legacy numeric-only output
+  if (typeof p.r === "number") return "pearson";
+  return "association";
+}
+
+function safeValueFromPair(p) {
+  if (!p || typeof p !== "object") return null;
+
+  // new-style (mixed metrics)
+  if (typeof p.value === "number") return p.value;
+  if (typeof p.score === "number") return p.score;
+
+  // legacy numeric correlation
+  if (typeof p.r === "number") return p.r;
+
+  return null;
+}
+
+function formatAssocValue(val, metric) {
+  if (typeof val !== "number" || Number.isNaN(val)) return "—";
+  const m = String(metric || "").toLowerCase();
+
+  // correlation-like metrics: keep sign
+  if (m === "pearson" || m === "spearman" || m === "kendall") return val.toFixed(4);
+
+  // association strengths are typically 0..1
+  return Math.abs(val).toFixed(4);
+}
+
+function metricBadgeLabel(metric) {
+  const m = String(metric || "").toLowerCase();
+  if (!m) return "ASSOC";
+  return m.toUpperCase();
+}
+
+/* -------- correlation result helpers (unchanged) -------- */
+
 function safeColumnsFromCorrelationResult(r) {
   if (!r || typeof r !== "object") return [];
   const cols = Array.isArray(r.used_columns) ? r.used_columns : Array.isArray(r.usedColumns) ? r.usedColumns : [];
@@ -619,14 +662,20 @@ const DatasetVisualizationPanel = ({
     return cols.map((c) => ({ label: c }));
   }, [numericColsProcessed, numericColsOriginal]);
 
+  /* -------- UPDATED: topPairsForUi supports metric/value OR legacy r -------- */
   const topPairsForUi = useMemo(() => {
     const src = (activeCorrPairs?.length ? activeCorrPairs : [scatterPair]).slice(0, 10);
     return src
       .filter(Boolean)
-      .map((p, idx) => ({
-        idx,
-        label: `${p.col1} vs ${p.col2}${typeof p.r === "number" ? ` (r=${p.r.toFixed(3)})` : ""}`,
-      }));
+      .map((p, idx) => {
+        const metric = safeMetricFromPair(p);
+        const val = safeValueFromPair(p);
+        const suffix = typeof val === "number" ? ` (${metricBadgeLabel(metric)}=${formatAssocValue(val, metric)})` : "";
+        return {
+          idx,
+          label: `${p.col1} vs ${p.col2}${suffix}`,
+        };
+      });
   }, [activeCorrPairs, scatterPair]);
 
   const renderCorrelation = useCallback(() => {
@@ -745,7 +794,8 @@ const DatasetVisualizationPanel = ({
                               <TableCell sx={{ fontWeight: 900 }}>#</TableCell>
                               <TableCell sx={{ fontWeight: 900 }}>Column 1</TableCell>
                               <TableCell sx={{ fontWeight: 900 }}>Column 2</TableCell>
-                              <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>r</TableCell>
+                              <TableCell sx={{ fontWeight: 900 }}>Metric</TableCell>
+                              <TableCell sx={{ fontWeight: 900, textAlign: "right" }}>Value</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -754,9 +804,26 @@ const DatasetVisualizationPanel = ({
                                 <TableCell>{idx + 1}</TableCell>
                                 <TableCell>{p.col1}</TableCell>
                                 <TableCell>{p.col2}</TableCell>
-                                <TableCell sx={{ textAlign: "right" }}>
-                                  {typeof p.r === "number" ? p.r.toFixed(4) : "—"}
-                                </TableCell>
+
+                                {(() => {
+                                  const metric = safeMetricFromPair(p);
+                                  const val = safeValueFromPair(p);
+                                  return (
+                                    <>
+                                      <TableCell>
+                                        <Chip
+                                          size="small"
+                                          label={metricBadgeLabel(metric)}
+                                          variant="outlined"
+                                          sx={{ fontWeight: 900 }}
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ textAlign: "right" }}>
+                                        {formatAssocValue(val, metric)}
+                                      </TableCell>
+                                    </>
+                                  );
+                                })()}
                               </TableRow>
                             ))}
                           </TableBody>
@@ -1013,7 +1080,6 @@ const DatasetVisualizationPanel = ({
 
       {/* RIGHT: charts */}
       <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0 }}>
-
         {/* AI */}
         <VizSection
           visible={aiInferenceEnabled && vizPrefs.showAiInference}
@@ -1522,7 +1588,7 @@ const DatasetVisualizationPanel = ({
 
         {/* Preprocessing impact */}
         <VizSection
-          visible={canShowPreprocessingImpact}
+          visible={vizPrefs.showPreprocessingImpact && actionCountSeries.length > 0}
           title="Preprocessing impact"
           subtitle="How many transformations/actions were applied per column (from metadata)."
           footer={previewNote}
@@ -1557,7 +1623,7 @@ const DatasetVisualizationPanel = ({
             canShowCategoryDrift ||
             canShowWordCharts ||
             canShowScalingStats ||
-            canShowPreprocessingImpact
+            (vizPrefs.showPreprocessingImpact && actionCountSeries.length > 0)
           ) && (
             <Alert severity="info">
               No visualizations available for the current preview rows (or all sections are disabled in settings).
@@ -1603,4 +1669,3 @@ DatasetVisualizationPanel.defaultProps = {
 };
 
 export default DatasetVisualizationPanel;
-
