@@ -101,6 +101,15 @@ Implementation references:
 - `server/src/core/r-client.ts`
 - `r-engine/R/routes.R`
 
+### 5.3 Upload normalization to CSV
+
+- Non-CSV uploads (JSON/XLS/XLSX) are converted server-side into a temporary CSV before preprocessing.
+- Original MIME type and filename are preserved for metadata and auditability.
+- Converted file replaces the upload path used by the worker.
+
+Implementation reference:
+- `server/src/middlewares/normalizeToCSV.ts`
+
 ---
 
 ## 6. Preprocessing Modes
@@ -222,7 +231,6 @@ Config example:
 
 Behavior:
 
-- Only numeric columns are used.
 - Constant or missing columns are excluded.
 - Returns top pairs sorted by absolute correlation.
 
@@ -251,9 +259,75 @@ Key metadata fields:
 
 ### 10.1 API boundaries
 
+- `/api/health`: service health check
+- `/api/auth`: signup/login, Google OAuth, account management
 - `/api/datasets`: upload, list, update, delete
 - `/api/jobs`: status, result, export
 - `/api/preprocessing/suggest`: LLM-based config suggestion
+- `/api/insights`: LLM-based dataset insights
+
+### 10.1.1 Auth API examples
+
+Base URL: `http://localhost:5000/api`
+
+Signup (local email/password):
+
+```
+curl -X POST http://localhost:5000/api/auth/signup ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\":\"Ada Lovelace\",\"email\":\"ada@example.com\",\"password\":\"MyStrongPass1\"}"
+```
+
+Response:
+
+```
+{
+  "id": "ckv....",
+  "email": "ada@example.com",
+  "name": "Ada Lovelace",
+  "verified": false
+}
+```
+
+Login:
+
+```
+curl -X POST http://localhost:5000/api/auth/login ^
+  -H "Content-Type: application/json" ^
+  -d "{\"email\":\"ada@example.com\",\"password\":\"MyStrongPass1\"}"
+```
+
+Response:
+
+```
+{
+  "user": {
+    "id": "ckv....",
+    "email": "ada@example.com",
+    "name": "Ada Lovelace",
+    "verified": true
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+Verify email (token comes from verification email):
+
+```
+GET http://localhost:5000/api/auth/verify-email?token=JWT_TOKEN
+```
+
+Password reset:
+
+```
+curl -X POST http://localhost:5000/api/auth/forget-password ^
+  -H "Content-Type: application/json" ^
+  -d "{\"email\":\"ada@example.com\"}"
+
+curl -X POST http://localhost:5000/api/auth/reset-password ^
+  -H "Content-Type: application/json" ^
+  -d "{\"token\":\"JWT_TOKEN\",\"newPassword\":\"MyNewStrongPass1\"}"
+```
 
 ### 10.2 Job orchestration
 
@@ -267,6 +341,27 @@ Key metadata fields:
 
 - `result-store.ts` persists processed data to Redis and file system.
 - Exports CSV/JSON/TXT for analysts.
+
+### 10.4 Realtime job updates (Socket.IO + Redis)
+
+- Worker publishes job lifecycle events to Redis channel `job:updates`.
+- API server subscribes and relays `job:update` events to user and job rooms.
+- Socket connections are JWT-authenticated (token in handshake auth or Authorization header).
+
+Implementation references:
+- `server/src/core/socket.ts`
+- `server/src/core/realtime.events.ts`
+- `server/src/workers/preprocess.worker.ts`
+- `frontend/src/services/realtime/socket.ts`
+
+### 10.5 API documentation (Swagger)
+
+- OpenAPI docs served at `/docs`.
+- Routes are assembled from `server/src/docs/*` specs.
+
+Implementation references:
+- `server/src/core/swagger.ts`
+- `server/src/docs/`
 
 ---
 
@@ -284,9 +379,9 @@ Key metadata fields:
 
 ### 12.1 Core tables
 
-- `User`
-- `Dataset`
-- `ProcessingJob`
+- `User` (email/password or Google ID, email verification state)
+- `Dataset` (ownership and file metadata)
+- `ProcessingJob` (preprocessingConfig, correlationConfig, status)
 - `dataset_processing_summary` (created by R engine)
 
 ### 12.2 Storage tiers
@@ -326,6 +421,43 @@ Implementation references:
 Implementation references:
 - `server/src/modules/preprocessing-suggest/`
 
+### 14.1 Insights Service (LLM)
+
+- Endpoint: `POST /api/insights` (JWT required).
+- Accepts dataset samples or processed CSV plus optional metadata (correlation, scaling stats, column actions).
+- Returns a structured narrative: executive summary, findings, data quality observations, correlation insights, preprocessing notes, next steps, confidence, and warnings.
+- Provider is selected via `openAI.llmProvider` (defaults to OpenAI).
+
+Implementation references:
+- `server/src/modules/insights/`
+- `server/src/modules/insights/validation/insightsRequest.schema.ts`
+- `server/src/modules/insights/validation/insightsResponse.schema.ts`
+- `frontend/src/services/modules/insights.api.ts`
+
+### 14.2 Insights API example
+
+```
+curl -X POST http://localhost:5000/api/insights ^
+  -H "Authorization: Bearer YOUR_JWT" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"filename\":\"survey.csv\",\"processedData\":\"age,score\\n29,4\\n31,5\\n\",\"metadata\":{\"correlation\":{\"enabled\":true,\"method\":\"pearson\",\"top_pairs\":[{\"r\":0.82,\"col1\":\"age\",\"col2\":\"score\"}]},\"column_actions\":{\"age\":[\"numeric_type_inference\"],\"score\":[\"scaling:zscore\"]}}}"
+```
+
+Response:
+
+```
+{
+  "executiveSummary": "Short narrative overview...",
+  "keyFindings": ["Finding 1", "Finding 2"],
+  "dataQualityObservations": ["Observation 1"],
+  "correlationInsights": ["age and score are strongly correlated (r=0.82)."],
+  "preprocessingNotes": ["age inferred as numeric", "score z-score scaled"],
+  "recommendedNextSteps": ["Validate outliers", "Review encoding choices"],
+  "confidence": 0.72,
+  "warnings": []
+}
+```
+
 ---
 
 ## 15. DevOps and Deployment
@@ -359,11 +491,82 @@ Implementation references:
 
 ![Deployment Topology](assets/Deployment%20Topology.png)
 
+### 15.3 Local Docker setup (step-by-step)
+
+1. Install prerequisites:
+   - Git
+   - Docker Desktop (ensure the Docker Engine is running)
+2. Clone the repository:
+
+```
+git clone "https://github.com/Kamalbhaiii/HIS-Project-Qualimind"
+cd "HIS-Project-Qualimind"
+```
+
+3. Update local development config to use Docker services:
+   - `server/config/development.json`: add or override local database and redis URLs and your own API keys.
+   - `frontend/src/config/development.json`: point `apiBaseUrl` and `serverUrl` to the backend port.
+
+Example `server/config/development.json` additions:
+
+```
+{
+  "database": {
+    "url": "postgresql://postgres:postgres@postgres:5432/qualimind-development"
+  },
+  "redis": {
+    "url": "redis://redis:6379"
+  },
+  "openAI": {
+    "llmProvider": "openai",
+    "apiKey": "YOUR_OPENAI_KEY",
+    "model": "gpt-4.1-mini",
+    "timeout": 60000,
+    "maxTokens": 900
+  }
+}
+```
+
+Example `frontend/src/config/development.json`:
+
+```
+{
+  "apiBaseUrl": "http://localhost:5000/api",
+  "serverUrl": "http://localhost:5000/",
+  "featureFlags": { "enableUpload": true },
+  "serverTimeout": 100000
+}
+```
+
+4. Start the full stack with Docker Compose (includes API, worker, frontend, R engine, Postgres, Redis):
+
+```
+docker compose -f docker-compose.dev.yml --profile backend --profile frontend --profile r --profile infra up --build
+```
+
+5. Wait for containers to initialize. The server runs migrations on first start (this resets the dev database).
+
+6. Open the app:
+   - Frontend: `http://localhost:5173`
+   - API: `http://localhost:5000/api/health`
+   - Swagger docs: `http://localhost:5000/docs`
+   - R engine: `http://localhost:5001/health`
+   - pgAdmin (optional): `http://localhost:5050`
+   - Redis Commander (optional): `http://localhost:5051`
+
+7. Stop the stack:
+
+```
+docker compose -f docker-compose.dev.yml down
+```
+
 ---
 
 ## 16. Security and Compliance
 
-- JWT-based authentication for API routes.
+- JWT-based authentication for API routes and Socket.IO.
+- Email verification for password signups; Google OAuth is supported.
+- Password reset links are delivered via email.
 - File type and size validation.
 - Data stored in Postgres and Redis with access controlled at service layer.
 - No automatic PII redaction; analysts must ensure compliance.
@@ -388,6 +591,7 @@ Suggested testing flows:
 
 - Logging in backend and worker.
 - Job status tracked in database.
+- API health endpoint: `/api/health`.
 - Health endpoint in R engine (`/health`).
 
 Recommended additions:
@@ -683,3 +887,4 @@ This project is developed for the High Integrity Systems course (Winter Semester
 - Frontend config builder: `frontend/src/lib/buildPreprocessingConfig.js`
 
 ---
+
