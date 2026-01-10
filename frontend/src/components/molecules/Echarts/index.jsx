@@ -6,7 +6,6 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import DownloadIcon from "@mui/icons-material/Download";
 
-// Registers wordCloud series type
 import "echarts-wordcloud";
 
 const baseGrid = { left: 56, right: 18, top: 32, bottom: 52, containLabel: true };
@@ -286,4 +285,122 @@ EWordCloud.propTypes = {
   showDownload: PropTypes.bool,
   minFontSize: PropTypes.number,
   maxFontSize: PropTypes.number,
+};
+
+/* ------------------------- ELine ------------------------- */
+export function ELine({ title, data, xLabel, yLabel, filename, showDownload, height = 380 }) {
+  const option = useMemo(() => {
+    const pts = (data || [])
+      .map((d) => [d.x, d.y])
+      .filter((p) => typeof p[0] === "number" && typeof p[1] === "number");
+
+    return {
+      tooltip: {
+        trigger: "axis",
+        formatter: (p) => {
+          const v = p?.[0]?.value;
+          if (!v) return "";
+          return `${xLabel || "x"}: ${v[0]}<br/>${yLabel || "y"}: ${v[1]}`;
+        },
+      },
+      grid: baseGrid,
+      xAxis: { type: "value", name: xLabel || "", nameGap: 28 },
+      yAxis: { type: "value", name: yLabel || "", nameGap: 28, min: 0, max: 1 },
+      series: [{ type: "line", data: pts, showSymbol: false, smooth: true }],
+    };
+  }, [data, xLabel, yLabel]);
+
+  return <ChartShell filename={filename || title} option={option} showDownload={showDownload} height={height} />;
+}
+
+ELine.propTypes = {
+  title: PropTypes.string,
+  data: PropTypes.array,
+  xLabel: PropTypes.string,
+  yLabel: PropTypes.string,
+  filename: PropTypes.string,
+  showDownload: PropTypes.bool,
+  height: PropTypes.number,
+};
+
+/* ------------------------- EBoxplot ------------------------- */
+export function EBoxplot({ title, labels, data, filename, showDownload, height = 420 }) {
+  const option = useMemo(() => {
+    return {
+      tooltip: {
+        trigger: "item",
+        formatter: (p) => {
+          const name = labels?.[p?.dataIndex] ?? "";
+          const v = p?.value || [];
+          // [min, q1, median, q3, max]
+          return `${name}<br/>min: ${v[0]}<br/>q1: ${v[1]}<br/>median: ${v[2]}<br/>q3: ${v[3]}<br/>max: ${v[4]}`;
+        },
+      },
+      grid: baseGrid,
+      xAxis: { type: "category", data: labels || [], nameGap: 28 },
+      yAxis: { type: "value", nameGap: 24 },
+      series: [
+        {
+          type: "boxplot",
+          data: data || [],
+        },
+      ],
+    };
+  }, [labels, data]);
+
+  return <ChartShell filename={filename || title} option={option} showDownload={showDownload} height={height} />;
+}
+
+EBoxplot.propTypes = {
+  title: PropTypes.string,
+  labels: PropTypes.array,
+  data: PropTypes.array,
+  filename: PropTypes.string,
+  showDownload: PropTypes.bool,
+  height: PropTypes.number,
+};
+
+/* ------------------------- EStackedBar ------------------------- */
+export function EStackedBar({
+  title,
+  categories, // x-axis categories (e.g. ["Original","Processed"])
+  series, // [{ name: "Berlin", values: [0.4,0.3] }, ...]
+  xLabel,
+  yLabel,
+  filename,
+  showDownload,
+  height = 420,
+}) {
+  const option = useMemo(() => {
+    const cats = categories || [];
+    const s = (series || []).map((s0) => ({
+      name: s0.name,
+      type: "bar",
+      stack: "total",
+      data: (s0.values || []).map((v) => (typeof v === "number" ? v : 0)),
+      barMaxWidth: 34,
+    }));
+
+    return {
+      tooltip: { trigger: "axis" },
+      legend: { top: 0 },
+      grid: { left: 64, right: 18, top: 52, bottom: 52, containLabel: true },
+      xAxis: { type: "category", data: cats, name: xLabel || "", nameGap: 28 },
+      yAxis: { type: "value", name: yLabel || "", nameGap: 24, min: 0, max: 1 },
+      series: s,
+    };
+  }, [categories, series, xLabel, yLabel]);
+
+  return <ChartShell filename={filename || title} option={option} showDownload={showDownload} height={height} />;
+}
+
+EStackedBar.propTypes = {
+  title: PropTypes.string,
+  categories: PropTypes.array,
+  series: PropTypes.array,
+  xLabel: PropTypes.string,
+  yLabel: PropTypes.string,
+  filename: PropTypes.string,
+  showDownload: PropTypes.bool,
+  height: PropTypes.number,
 };

@@ -4,5 +4,5 @@
   "featureFlags": {
     "enableUpload": false
   },
-  "serverTimeout": 10000
+  "serverTimeout": 100000
 }

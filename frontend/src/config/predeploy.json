@@ -2,5 +2,5 @@
   "apiBaseUrl": "https://qualimind.kamalbhaiii.de/api",
   "serverUrl": "https://qualimind.kamalbhaiii.de/",
   "featureFlags": {},
-  "serverTimeout": 30000
+  "serverTimeout": 300000
 }
