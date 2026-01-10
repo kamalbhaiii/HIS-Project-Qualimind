@@ -17,6 +17,7 @@ function buildMissingBars(originalRows, processedRows) {
   const pickTop = (items, n = 12) => {
     return (items || [])
       .slice()
+      .filter((x) => (x?.missing || 0) > 0) // NEW: remove zero-missing columns
       .sort((a, b) => (b.missing || 0) - (a.missing || 0))
       .slice(0, n);
   };
@@ -36,12 +37,14 @@ function buildMissingBars(originalRows, processedRows) {
   const oTop = pickTop(o, 12);
   const pTop = pickTop(p, 12);
 
+  // NEW: If both sides have no missingness, don't render the section
+  if (!oTop.length && !pTop.length) return null;
+
   return {
     original: oTop.map((x) => ({ label: x.col, value: x.missing })),
     processed: pTop.map((x) => ({ label: x.col, value: x.missing })),
   };
 }
-
 
 const MissingnessSection = ({ originalRows, processedRows, filename }) => {
   const bars = useMemo(() => buildMissingBars(originalRows, processedRows), [originalRows, processedRows]);

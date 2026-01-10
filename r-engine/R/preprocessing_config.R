@@ -82,6 +82,41 @@ select_columns <- function(df, col_types, appliesTo) {
   selected
 }
 
+# ---------- helpers: keep categoricals for UI (Category Drift) ----------
+
+snapshot_categorical_columns <- function(df, cols) {
+  cols <- intersect(as.character(cols %||% character()), colnames(df))
+  if (!length(cols)) return(NULL)
+
+  keep <- cols[sapply(cols, function(c) is.character(df[[c]]) || is.factor(df[[c]]))]
+  if (!length(keep)) return(NULL)
+
+  out <- df[, keep, drop = FALSE]
+  for (c in colnames(out)) out[[c]] <- as.character(out[[c]])
+  out
+}
+
+merge_categorical_snapshots <- function(a, b) {
+  if (is.null(a) || !ncol(a)) return(b)
+  if (is.null(b) || !ncol(b)) return(a)
+
+  # add only new columns from b
+  new_cols <- setdiff(colnames(b), colnames(a))
+  if (!length(new_cols)) return(a)
+
+  cbind(a, b[, new_cols, drop = FALSE])
+}
+
+reattach_categorical_snapshot <- function(df, snap) {
+  if (is.null(snap) || !ncol(snap)) return(df)
+
+  # avoid name collisions (shouldn't happen, but keep safe)
+  overlap <- intersect(colnames(df), colnames(snap))
+  if (length(overlap)) df <- df[, setdiff(colnames(df), overlap), drop = FALSE]
+
+  cbind(df, snap)
+}
+
 # ---------- STRICT explicit step: missing token normalization ----------
 
 missing_token_normalization_method <- function(df, cols, actions, tokens) {
@@ -478,6 +513,7 @@ preprocess_with_config <- function(df, config_raw) {
   rare_category_info <- list()
   high_cardinality_columns <- character()
   parameters_out <- list()
+  categorical_snapshot <- NULL
 
   for (i in seq_along(cfg$steps)) {
     st <- cfg$steps[[i]]
@@ -566,6 +602,8 @@ preprocess_with_config <- function(df, config_raw) {
 
     } else if (task == "encoding") {
       if (method == "auto") {
+        snap <- snapshot_categorical_columns(df, target_cols)
+        categorical_snapshot <- merge_categorical_snapshots(categorical_snapshot, snap)
         out <- encode_categoricals_method(
           df,
           target_cols,
@@ -612,6 +650,9 @@ preprocess_with_config <- function(df, config_raw) {
     if (length(col_types2$categorical) > 0) {
       df <- df[, setdiff(colnames(df), col_types2$categorical), drop = FALSE]
     }
+
+    # Reattach categorical strings for UI features (Category Drift, etc.)
+    df <- reattach_categorical_snapshot(df, categorical_snapshot)
   }
 
   numeric_cols_final <- colnames(df)[sapply(df, is.numeric)]
