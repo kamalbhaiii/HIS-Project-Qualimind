@@ -1,5 +1,5 @@
 // components/organisms/Step2PreprocessingOrchestrator.jsx
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 
 import FlexBox from "../../atoms/FlexBox";
@@ -41,6 +41,10 @@ function kindFromType(t) {
 
 function uniq(arr) {
   return Array.from(new Set(arr));
+}
+
+function isPlainObject(x) {
+  return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
 /**
@@ -155,14 +159,14 @@ function Badge({ text, kind }) {
     kind === "cat"
       ? "rgba(46,125,50,0.10)"
       : kind === "num"
-        ? "rgba(156,39,176,0.10)"
-        : "rgba(0,0,0,0.06)";
+      ? "rgba(156,39,176,0.10)"
+      : "rgba(0,0,0,0.06)";
   const fg =
     kind === "cat"
       ? "rgba(46,125,50,0.90)"
       : kind === "num"
-        ? "rgba(156,39,176,0.90)"
-        : "rgba(0,0,0,0.65)";
+      ? "rgba(156,39,176,0.90)"
+      : "rgba(0,0,0,0.65)";
   return (
     <span
       style={{
@@ -223,6 +227,246 @@ function summarizeOverridesForColumn(colOverride) {
   return out;
 }
 
+/* ------------------------ NEW: Config -> Bulk sync helpers ------------------------ */
+
+/**
+ * Expand appliesTo to concrete columns.
+ * Supports:
+ * - appliesTo.columns: ["a","b"]
+ * - appliesTo.types: ["categorical","numeric"] or ["cat","num"] (best effort)
+ * If none present: returns [] (no-op for safety).
+ */
+function expandAppliesTo({ appliesTo, allColumns, columnTypes }) {
+  const ap = isPlainObject(appliesTo) ? appliesTo : {};
+
+  const cols = Array.isArray(ap.columns) ? ap.columns.filter(Boolean) : [];
+  if (cols.length) {
+    const allowed = new Set(allColumns || []);
+    return cols.filter((c) => allowed.has(c));
+  }
+
+  const types = Array.isArray(ap.types) ? ap.types.map((t) => String(t || "").toLowerCase()) : [];
+  if (!types.length) return [];
+
+  const wantCat = types.some((t) => t === "categorical" || t === "cat" || t === "factor" || t === "character" || t === "string");
+  const wantNum = types.some((t) => t === "numeric" || t === "num" || t === "number");
+
+  return (allColumns || []).filter((c) => {
+    const t = columnTypes?.[c];
+    if (wantCat && isCategoricalType(t)) return true;
+    if (wantNum && isNumericType(t)) return true;
+    return false;
+  });
+}
+
+/**
+ * Best-effort: translate a preprocessingConfig (v1.0 steps[]) into:
+ * - overrides map (per-column)
+ * - defaults snapshot (for bulk UI default values)
+ *
+ * This is intentionally conservative: if a step is unknown, it is ignored.
+ */
+function configToBulkState({ config, allColumns, columnTypes }) {
+  const cfg = isPlainObject(config) ? config : null;
+  const steps = Array.isArray(cfg?.steps) ? cfg.steps : [];
+
+  const nextOverrides = {};
+  const nextDefaults = {};
+
+  const setDefaultOnce = (k, v) => {
+    if (nextDefaults[k] === undefined) nextDefaults[k] = v;
+  };
+
+  const ensureCol = (col) => {
+    if (!nextOverrides[col]) nextOverrides[col] = {};
+    return nextOverrides[col];
+  };
+
+  for (const step of steps) {
+    if (!isPlainObject(step)) continue;
+
+    // normalize the two common key styles (task/method) and legacy-ish shapes
+    const task = String(step.task || step.type || step.action || "").trim().toLowerCase();
+    const method = String(step.method || step.strategy || "").trim();
+
+    const targetCols = expandAppliesTo({
+      appliesTo: step.appliesTo,
+      allColumns,
+      columnTypes,
+    });
+
+    if (!targetCols.length) continue;
+
+    // 1) Label cleaning
+    if (task === "label_cleaning") {
+      const m = method || "standard";
+      if (String(m).toLowerCase() !== "standard") continue;
+
+      targetCols.forEach((col) => {
+        const t = columnTypes?.[col];
+        if (!isCategoricalType(t)) return;
+        const cur = ensureCol(col);
+        cur.label_cleaning = { method: "standard" };
+      });
+      continue;
+    }
+
+    // 2) Missing values (categorical/numeric)
+    if (task === "missing_values") {
+      // Expect either:
+      // - step.appliesTo.types indicates cat/num; or
+      // - step.method encodes which one (best-effort)
+      const m = String(method || "").toLowerCase();
+
+      targetCols.forEach((col) => {
+        const t = columnTypes?.[col];
+        const cur = ensureCol(col);
+
+        if (isCategoricalType(t)) {
+          // supported: categorical_unknown / categorical_mode
+          const catMethod =
+            m === "categorical_mode" || m === "mode"
+              ? "categorical_mode"
+              : "categorical_unknown";
+
+          cur.missing_values = { ...(cur.missing_values || {}) };
+          cur.missing_values.categorical = {
+            method: catMethod,
+            ...(catMethod === "categorical_unknown"
+              ? { unknownLevel: step?.params?.unknownLevel || step?.unknownLevel || "unknown" }
+              : {}),
+          };
+
+          setDefaultOnce("categoricalMissing", catMethod);
+          if (catMethod === "categorical_unknown") {
+            setDefaultOnce("unknownLevel", cur.missing_values.categorical.unknownLevel || "unknown");
+          }
+          return;
+        }
+
+        if (isNumericType(t)) {
+          // supported: numeric_median / numeric_mean / numeric_constant
+          const numMethod =
+            m === "numeric_mean" || m === "mean"
+              ? "numeric_mean"
+              : m === "numeric_constant" || m === "constant"
+              ? "numeric_constant"
+              : "numeric_median";
+
+          cur.missing_values = { ...(cur.missing_values || {}) };
+          cur.missing_values.numeric = {
+            method: numMethod,
+            ...(numMethod === "numeric_constant"
+              ? { value: Number.isFinite(Number(step?.params?.value ?? step?.value)) ? Number(step?.params?.value ?? step?.value) : 0 }
+              : {}),
+          };
+
+          setDefaultOnce("numericMissing", numMethod);
+          if (numMethod === "numeric_constant") {
+            setDefaultOnce("numericConstant", cur.missing_values.numeric.value ?? 0);
+          }
+        }
+      });
+
+      continue;
+    }
+
+    // 3) Reduce cardinality
+    if (task === "reduce_cardinality") {
+      const m = String(method || "rare_to_other").toLowerCase();
+      if (m !== "rare_to_other") continue;
+
+      const rareProp =
+        Number.isFinite(Number(step?.params?.rare_prop_threshold))
+          ? Number(step.params.rare_prop_threshold)
+          : Number.isFinite(Number(step?.rare_prop_threshold))
+          ? Number(step.rare_prop_threshold)
+          : 0.01;
+
+      const highCard =
+        Number.isFinite(Number(step?.params?.high_cardinality_threshold))
+          ? Number(step.params.high_cardinality_threshold)
+          : Number.isFinite(Number(step?.high_cardinality_threshold))
+          ? Number(step.high_cardinality_threshold)
+          : 50;
+
+      targetCols.forEach((col) => {
+        const t = columnTypes?.[col];
+        if (!isCategoricalType(t)) return;
+
+        const cur = ensureCol(col);
+        cur.reduce_cardinality = {
+          method: "rare_to_other",
+          rare_prop_threshold: rareProp,
+          high_cardinality_threshold: highCard,
+        };
+      });
+
+      setDefaultOnce("rarePropThreshold", rareProp);
+      setDefaultOnce("highCardinalityThreshold", highCard);
+      continue;
+    }
+
+    // 4) Encoding
+    if (task === "encoding") {
+      const m = String(method || "auto").toLowerCase();
+      if (m !== "auto") continue;
+
+      const oneHotMax =
+        Number.isFinite(Number(step?.params?.one_hot_max_levels))
+          ? Number(step.params.one_hot_max_levels)
+          : Number.isFinite(Number(step?.one_hot_max_levels))
+          ? Number(step.one_hot_max_levels)
+          : 10;
+
+      targetCols.forEach((col) => {
+        const t = columnTypes?.[col];
+        if (!isCategoricalType(t)) return;
+
+        const cur = ensureCol(col);
+        cur.encoding = { method: "auto", one_hot_max_levels: oneHotMax };
+      });
+
+      setDefaultOnce("oneHotMaxLevels", oneHotMax);
+      continue;
+    }
+
+    // 5) Scaling
+    if (task === "scaling") {
+      const m = String(method || "zscore").toLowerCase();
+      const scalingMethod = m === "minmax" ? "minmax" : m === "none" ? "none" : "zscore";
+
+      targetCols.forEach((col) => {
+        const t = columnTypes?.[col];
+        if (!isNumericType(t)) return;
+
+        const cur = ensureCol(col);
+        cur.scaling = { method: scalingMethod };
+      });
+
+      setDefaultOnce("scaling", scalingMethod);
+      continue;
+    }
+
+    // Unknown task: ignore
+  }
+
+  // cleanup empty overrides (defensive)
+  Object.keys(nextOverrides).forEach((col) => {
+    const cur = nextOverrides[col];
+    const empty =
+      !cur ||
+      (!cur.missing_values &&
+        !cur.label_cleaning &&
+        !cur.reduce_cardinality &&
+        !cur.encoding &&
+        !cur.scaling);
+    if (empty) delete nextOverrides[col];
+  });
+
+  return { overrides: nextOverrides, defaults: nextDefaults };
+}
+
 /* ------------------------------ main component ------------------------------ */
 
 export default function Step2PreprocessingOrchestrator({
@@ -254,8 +498,8 @@ export default function Step2PreprocessingOrchestrator({
       typeof arg2 === "string"
         ? arg2
         : typeof arg1 === "string"
-          ? arg1
-          : arg1?.target?.value;
+        ? arg1
+        : arg1?.target?.value;
 
     setMode(next === "config" || next === "bulk" ? next : "bulk");
   }, []);
@@ -369,6 +613,85 @@ export default function Step2PreprocessingOrchestrator({
     [setOverrides]
   );
 
+  /* --------------------- NEW: Sync Custom Config -> Bulk Selection --------------------- */
+
+  // We will apply the parsed config into overrides/defaults whenever:
+  // - custom config is ON
+  // - custom config is valid (customConfigParsed is non-null)
+  // - and the JSON signature differs from the last applied one
+  const lastAppliedCustomSigRef = useRef(null);
+
+  const customSig = useMemo(() => {
+    if (!useCustomConfig) return null;
+    // prefer parsed object signature (stable-ish)
+    try {
+      const obj = isPlainObject(liveConfig) ? { ...liveConfig } : {}; // not used; keep defensive
+      void obj;
+      // If parent only stores parsed via setCustomConfigParsed, it should be available there
+      // We will compute signature from customConfigText as it changes, but only apply when parsed exists.
+      return String(customConfigText || "").trim();
+    } catch {
+      return String(customConfigText || "").trim();
+    }
+  }, [useCustomConfig, customConfigText, liveConfig]);
+
+  useEffect(() => {
+    // If custom is OFF: do not force bulk state (bulk remains user-driven).
+    if (!useCustomConfig) {
+      lastAppliedCustomSigRef.current = null;
+      return;
+    }
+
+    // Custom is ON, but we only sync when parsed config is available and valid.
+    // The parser/validator runs in PreprocessingConfigEditorPanel via setCustomConfigParsed.
+    // We infer validity by presence of parsed object and absence of customConfigError.
+    const hasParsed = !!(isPlainObject(liveConfig) || true); // no-op; keep for lint
+    void hasParsed;
+
+    // We do NOT have customConfigParsed in props; we have setCustomConfigParsed only.
+    // Therefore we re-parse here safely and validate before applying.
+    // This guarantees bulk sync even if user forgets to hit "Validate".
+    let parsed = null;
+    try {
+      parsed = JSON.parse(String(customConfigText || ""));
+    } catch {
+      return;
+    }
+
+    const v = validatePreprocessingConfig(parsed);
+    if (!v?.ok) return;
+
+    const sig = customSig;
+    if (!sig) return;
+
+    if (lastAppliedCustomSigRef.current === sig) return;
+
+    const { overrides: nextOv, defaults: nextDef } = configToBulkState({
+      config: parsed,
+      allColumns: columns || [],
+      columnTypes: columnTypes || {},
+    });
+
+    setOverrides(nextOv);
+
+    // merge defaults so we do not wipe unrelated keys
+    setDefaults((prev) => ({ ...(prev || {}), ...(nextDef || {}) }));
+
+    // clean selection/ranges to avoid confusing state after a full refresh
+    setSelectedCols([]);
+
+    lastAppliedCustomSigRef.current = sig;
+  }, [
+    useCustomConfig,
+    customSig,
+    customConfigText,
+    validatePreprocessingConfig,
+    columns,
+    columnTypes,
+    setOverrides,
+    setDefaults,
+  ]);
+
   /* --------------------- Range-based selection per list --------------------- */
 
   const [catRange, setCatRange] = useState("");
@@ -466,6 +789,8 @@ export default function Step2PreprocessingOrchestrator({
 
   /**
    * When user clicks "Apply to selected", apply overrides AND clear the selection afterwards.
+   * If custom config is ON, we still allow applying from bulk; bulk is the “source of truth”
+   * and the liveConfig will update accordingly. User can then copy/validate in editor if desired.
    */
   const applyToSelected = useCallback(() => {
     const colsSnapshot = Array.isArray(selectedCols) ? [...selectedCols] : [];
@@ -701,11 +1026,13 @@ export default function Step2PreprocessingOrchestrator({
   const handleAiAccept = useCallback(() => {
     if (!aiSuggestion?.preprocessingConfig) return;
 
+    // Set config editor content
     setCustomConfigText(JSON.stringify(aiSuggestion.preprocessingConfig, null, 2));
     setCustomConfigParsed(aiSuggestion.preprocessingConfig);
     setCustomConfigError(null);
     setUseCustomConfig(true);
 
+    // Bulk will auto-sync via the custom-config sync effect above.
     setAiConsoleOpen(false);
   }, [aiSuggestion, setCustomConfigText, setCustomConfigParsed, setCustomConfigError, setUseCustomConfig]);
 
@@ -882,6 +1209,7 @@ export default function Step2PreprocessingOrchestrator({
             </Typography>
             <Typography variant="caption" color="textSecondary">
               Configured columns: {configuredCount}
+              {useCustomConfig ? " • Custom config: ON (bulk is synced from config)" : ""}
             </Typography>
           </FlexBox>
 
@@ -1265,6 +1593,11 @@ export default function Step2PreprocessingOrchestrator({
               <Typography variant="caption" color="textSecondary">
                 After you click “Apply to selected”, the selection is cleared automatically.
               </Typography>
+              {useCustomConfig && (
+                <Typography variant="caption" color="textSecondary">
+                  Custom config is ON: bulk changes will reflect in the live config, and config changes will sync back into bulk.
+                </Typography>
+              )}
             </FlexBox>
 
             {/* Categorical */}

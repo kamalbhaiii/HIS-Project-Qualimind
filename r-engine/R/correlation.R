@@ -295,6 +295,7 @@ compute_correlation_analysis_single <- function(df, cfg) {
   # Optional matrix: only meaningful for numeric-numeric and same metric
   # We will include a numeric-only correlation matrix (legacy behavior), and keep mixed pairs in top_pairs.
   matrix_out <- NULL
+  matrix_columns <- character(0)
   matrix_note <- NULL
 
   if (isTRUE(cfg$includeMatrix)) {
@@ -303,7 +304,12 @@ compute_correlation_analysis_single <- function(df, cfg) {
     if (length(numeric_cols) >= 2 && length(numeric_cols) <= cfg$maxMatrixCols) {
       sub <- df[, numeric_cols, drop = FALSE]
       sub <- as.data.frame(lapply(sub, as.numeric))
-      matrix_out <- suppressWarnings(stats::cor(sub, use = "pairwise.complete.obs", method = cfg$method))
+
+      m <- suppressWarnings(stats::cor(sub, use = "pairwise.complete.obs", method = cfg$method))
+
+      # ensure we return a plain 2D array (JSON-friendly) and explicit labels
+      matrix_out <- unname(m)
+      matrix_columns <- colnames(m) %||% numeric_cols
     } else if (length(numeric_cols) > cfg$maxMatrixCols) {
       matrix_note <- "Matrix omitted due to size limit."
     } else {
@@ -325,6 +331,7 @@ compute_correlation_analysis_single <- function(df, cfg) {
 
   if (isTRUE(cfg$includeMatrix)) {
     out$matrix <- matrix_out
+    out$matrix_columns <- matrix_columns
     if (!is.null(matrix_note)) out$matrix_note <- jsonlite::unbox(matrix_note)
   }
 

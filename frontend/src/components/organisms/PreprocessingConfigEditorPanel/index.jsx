@@ -8,6 +8,8 @@ import Button from "../../atoms/CustomButton";
 import SectionCard from "../../atoms/SectionCard";
 import ToggleChip from "../../atoms/ToggleChip";
 
+/* --------------------------- safe helpers --------------------------- */
+
 function safeJsonStringify(obj) {
   try {
     return JSON.stringify(obj ?? null, null, 2);
@@ -33,7 +35,7 @@ function TextareaNative({ value, onChange, readOnly }) {
       readOnly={readOnly}
       style={{
         width: "100%",
-        minHeight: 420,
+        minHeight: 520,
         padding: 12,
         borderRadius: 12,
         border: "1px solid rgba(0,0,0,0.15)",
@@ -47,6 +49,14 @@ function TextareaNative({ value, onChange, readOnly }) {
   );
 }
 
+/**
+ * Behavior:
+ * - Only ONE editor is shown.
+ * - When Custom is OFF -> editor shows LIVE config, read-only.
+ * - When Custom is ON  -> editor becomes editable, using customConfigText.
+ * - Validate is the ONLY action that sets customConfigParsed (i.e., applies the custom config).
+ * - Any edit/reset invalidates customConfigParsed until Validate is clicked again.
+ */
 export default function PreprocessingConfigEditorPanel({
   liveConfig,
   validateConfig,
@@ -63,16 +73,37 @@ export default function PreprocessingConfigEditorPanel({
 
   const [lastValidAt, setLastValidAt] = useState(null);
 
-  // When user enables custom, seed editor from LIVE config once (don’t overwrite user edits)
+  // When switching Custom ON:
+  // - seed editor from live config if editor is empty
+  // - DO NOT mark as applied/valid until user clicks Validate
   useEffect(() => {
     if (!useCustomConfig) return;
-    if (customConfigText?.trim()) return;
+    if (String(customConfigText || "").trim()) return;
+
     setCustomConfigText(liveText);
-    setCustomConfigParsed(liveConfig || null);
     setCustomConfigError(null);
+    setCustomConfigParsed(null);
     setLastValidAt(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useCustomConfig]);
+
+  // When switching Custom OFF:
+  // - clear validation stamp and visible error (UI only)
+  // - keep user's draft text (so they can toggle ON again)
+  useEffect(() => {
+    if (useCustomConfig) return;
+    setLastValidAt(null);
+    if (customConfigError) setCustomConfigError(null);
+    // Do NOT clear customConfigText (draft)
+    // Do NOT clear customConfigParsed (parent may keep it, but should ignore when custom is OFF)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useCustomConfig]);
+
+  const editorValue = useMemo(() => {
+    return useCustomConfig ? String(customConfigText || "") : liveText;
+  }, [useCustomConfig, customConfigText, liveText]);
+
+  const editorReadOnly = !useCustomConfig;
 
   const copyToClipboard = useCallback(async (txt) => {
     try {
@@ -83,6 +114,8 @@ export default function PreprocessingConfigEditorPanel({
   }, []);
 
   const handleFormat = useCallback(() => {
+    if (!useCustomConfig) return;
+
     const parsed = tryParseJson(customConfigText);
     if (!parsed.ok) {
       setCustomConfigError(parsed.error);
@@ -90,13 +123,16 @@ export default function PreprocessingConfigEditorPanel({
     }
     setCustomConfigText(safeJsonStringify(parsed.value));
     setCustomConfigError(null);
-  }, [customConfigText, setCustomConfigText, setCustomConfigError]);
+  }, [useCustomConfig, customConfigText, setCustomConfigText, setCustomConfigError]);
 
   const handleValidateAndParse = useCallback(() => {
+    if (!useCustomConfig) return;
+
     const parsed = tryParseJson(customConfigText);
     if (!parsed.ok) {
       setCustomConfigParsed(null);
       setCustomConfigError(parsed.error);
+      setLastValidAt(null);
       return;
     }
 
@@ -104,16 +140,23 @@ export default function PreprocessingConfigEditorPanel({
     if (!v.ok) {
       setCustomConfigParsed(null);
       setCustomConfigError(v.message || "Invalid config.");
+      setLastValidAt(null);
       return;
     }
 
     setCustomConfigParsed(parsed.value);
     setCustomConfigError(null);
     setLastValidAt(new Date().toISOString());
-  }, [customConfigText, setCustomConfigParsed, setCustomConfigError, validateConfig]);
+  }, [
+    useCustomConfig,
+    customConfigText,
+    setCustomConfigParsed,
+    setCustomConfigError,
+    validateConfig,
+  ]);
 
   const statusText = useMemo(() => {
-    if (!useCustomConfig) return "Live config is active.";
+    if (!useCustomConfig) return "Live config is active (read-only).";
     if (customConfigError) return "Custom config has errors.";
     if (lastValidAt) return "Custom config is valid.";
     return "Custom config is active. Validate to apply changes.";
@@ -128,95 +171,116 @@ export default function PreprocessingConfigEditorPanel({
               Config editor
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Live config updates automatically from Bulk Selection. Enable Custom only if you want to override it.
+              Status: {statusText}
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Status: {statusText}
+              {useCustomConfig
+                ? "Editing Custom config. Bulk Selection should sync from this config after Validate."
+                : "Viewing Live config. Turn Custom ON to edit and override."}
             </Typography>
           </FlexBox>
 
-          <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+          <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
             <ToggleChip
               label={useCustomConfig ? "Custom: ON" : "Custom: OFF"}
               selected={useCustomConfig}
               onClick={() => {
                 setUseCustomConfig((v) => !v);
-                // do not auto-validate here; keep user in control
               }}
             />
+
             <Button variant="outlined" color="inherit" onClick={() => copyToClipboard(liveText)}>
               Copy Live
             </Button>
+
             {useCustomConfig && (
-              <Button variant="outlined" color="inherit" onClick={() => setCustomConfigText(liveText)}>
-                Reset to Live
-              </Button>
+              <>
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => {
+                    setCustomConfigText(liveText);
+                    setCustomConfigParsed(null);
+                    setCustomConfigError(null);
+                    setLastValidAt(null);
+                  }}
+                >
+                  Reset to Live
+                </Button>
+
+                <Button variant="outlined" color="inherit" onClick={handleFormat}>
+                  Format
+                </Button>
+
+                <Button variant="outlined" color="inherit" onClick={() => copyToClipboard(customConfigText)}>
+                  Copy
+                </Button>
+              </>
             )}
           </FlexBox>
         </FlexBox>
       </SectionCard>
 
-      {/* Live config always visible */}
       <SectionCard>
-        <FlexBox sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+        <FlexBox
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 1,
+            flexWrap: "wrap",
+          }}
+        >
           <FlexBox sx={{ flexDirection: "column", gap: 0.25 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              Live config (read-only)
+              {useCustomConfig ? "Custom config (editable)" : "Live config (read-only)"}
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              This is what Bulk Selection is producing right now.
+              {useCustomConfig
+                ? "Paste/edit JSON. Use Format for readability, Validate to apply."
+                : "This is what Bulk Selection is producing right now."}
             </Typography>
           </FlexBox>
-          <Button variant="outlined" color="inherit" onClick={() => copyToClipboard(liveText)}>
-            Copy
-          </Button>
+
+          {!useCustomConfig && (
+            <Button variant="outlined" color="inherit" onClick={() => copyToClipboard(liveText)}>
+              Copy
+            </Button>
+          )}
         </FlexBox>
 
         <FlexBox sx={{ mt: 1 }}>
-          <TextareaNative value={liveText} onChange={() => {}} readOnly />
+          <TextareaNative
+            value={editorValue}
+            readOnly={editorReadOnly}
+            onChange={(e) => {
+              if (!useCustomConfig) return;
+
+              setCustomConfigText(e.target.value);
+
+              // Any edit invalidates previously parsed/applied config until re-validated.
+              setCustomConfigParsed(null);
+
+              // UX clarity: edits invalidate validation timestamp
+              if (lastValidAt) setLastValidAt(null);
+            }}
+          />
         </FlexBox>
-      </SectionCard>
 
-      {/* Custom config only if enabled */}
-      {useCustomConfig && (
-        <SectionCard>
-          <FlexBox sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
-            <FlexBox sx={{ flexDirection: "column", gap: 0.25 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Custom config (editable)
-              </Typography>
-              <Typography variant="caption" color="textSecondary">
-                Paste/edit JSON. Use Format for readability, Validate to apply.
-              </Typography>
-            </FlexBox>
+        {useCustomConfig && customConfigError && (
+          <Typography variant="caption" sx={{ mt: 1 }} color="error">
+            {customConfigError}
+          </Typography>
+        )}
 
-            <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-              <Button variant="outlined" color="inherit" onClick={handleFormat}>
-                Format
-              </Button>
-              <Button variant="outlined" color="inherit" onClick={() => copyToClipboard(customConfigText)}>
-                Copy
-              </Button>
-            </FlexBox>
-          </FlexBox>
-
-          <FlexBox sx={{ mt: 1 }}>
-            <TextareaNative value={customConfigText} onChange={(e) => setCustomConfigText(e.target.value)} />
-          </FlexBox>
-
-          {customConfigError && (
-            <Typography variant="caption" sx={{ mt: 1 }} color="error">
-              {customConfigError}
-            </Typography>
-          )}
-
+        {useCustomConfig && (
           <FlexBox sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 1 }}>
             <Button variant="contained" color="primary" onClick={handleValidateAndParse}>
               Validate
             </Button>
           </FlexBox>
-        </SectionCard>
-      )}
+        )}
+      </SectionCard>
     </FlexBox>
   );
 }

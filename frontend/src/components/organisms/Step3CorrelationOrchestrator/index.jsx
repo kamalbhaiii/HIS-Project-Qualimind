@@ -135,31 +135,13 @@ function isAnalysisValidForCorrelation(a) {
 
 /* ----------------------- component ----------------------- */
 
-const Step3CorrelationOrchestrator = ({
-  columnTypes,
-
-  correlationValue,
-  onCorrelationChange,
-
-  // preprocessing editor shared props
-  livePreprocessingConfig,
-  preprocessingConfigEffective,
-  setPreprocessingConfigEffective,
-  validatePreprocessingConfig,
-  useCustomConfig,
-  setUseCustomConfig,
-  customConfigText,
-  setCustomConfigText,
-  setCustomConfigParsed,
-  customConfigError,
-  setCustomConfigError,
-}) => {
-  // tabs: builder vs json
+const Step3CorrelationOrchestrator = ({ columnTypes, correlationValue, onCorrelationChange }) => {
+  // Two modes like Step-2: builder vs config editor
   const [mode, setMode] = useState("builder");
   const tabs = useMemo(
     () => [
-      { key: "builder", label: "Builder" },
-      { key: "json", label: "JSON Editor" },
+      { key: "builder", label: "Form" },
+      { key: "json", label: "Config Editor" },
     ],
     []
   );
@@ -183,7 +165,10 @@ const Step3CorrelationOrchestrator = ({
   const numericCols = useMemo(() => {
     if (!columnTypes || typeof columnTypes !== "object") return [];
     return Object.entries(columnTypes)
-      .filter(([, t]) => String(t).toLowerCase() === "numeric" || String(t).toLowerCase() === "number")
+      .filter(([, t]) => {
+        const s = String(t).toLowerCase();
+        return s === "numeric" || s === "number";
+      })
       .map(([col]) => String(col))
       .sort((a, b) => a.localeCompare(b));
   }, [columnTypes]);
@@ -211,7 +196,7 @@ const Step3CorrelationOrchestrator = ({
     });
   }, []);
 
-  // Keep local state in sync with parent value, but only when meaningful changes occur
+  // Keep local state in sync with parent value (signature-based)
   const lastSyncSigRef = useRef("");
   useEffect(() => {
     const sig = JSON.stringify({
@@ -596,17 +581,6 @@ const Step3CorrelationOrchestrator = ({
                           includeMatrix: nextVal?.includeMatrix,
                         })
                       }
-                      livePreprocessingConfig={livePreprocessingConfig}
-                      preprocessingConfigEffective={preprocessingConfigEffective}
-                      setPreprocessingConfigEffective={setPreprocessingConfigEffective}
-                      validatePreprocessingConfig={validatePreprocessingConfig}
-                      useCustomConfig={useCustomConfig}
-                      setUseCustomConfig={setUseCustomConfig}
-                      customConfigText={customConfigText}
-                      setCustomConfigText={setCustomConfigText}
-                      setCustomConfigParsed={setCustomConfigParsed}
-                      customConfigError={customConfigError}
-                      setCustomConfigError={setCustomConfigError}
                     />
                   )}
                 </FlexBox>
@@ -624,7 +598,7 @@ const Step3CorrelationOrchestrator = ({
                 correlationConfig (multi-run)
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Edit the full object used for upload. Use Normalize to repair missing fields. Validate applies it to the builder.
+                Edit the full object used for upload. Use Normalize to repair missing fields. Validate applies it to the form.
                 {jsonValidatedAt ? ` Last applied: ${jsonValidatedAt}` : ""}
               </Typography>
             </FlexBox>
@@ -684,26 +658,10 @@ Step3CorrelationOrchestrator.propTypes = {
   columnTypes: PropTypes.object,
   correlationValue: PropTypes.object.isRequired,
   onCorrelationChange: PropTypes.func.isRequired,
-
-  livePreprocessingConfig: PropTypes.object,
-  preprocessingConfigEffective: PropTypes.object,
-  setPreprocessingConfigEffective: PropTypes.func.isRequired,
-  validatePreprocessingConfig: PropTypes.func.isRequired,
-
-  useCustomConfig: PropTypes.bool.isRequired,
-  setUseCustomConfig: PropTypes.func.isRequired,
-  customConfigText: PropTypes.string.isRequired,
-  setCustomConfigText: PropTypes.func.isRequired,
-  setCustomConfigParsed: PropTypes.func.isRequired,
-  customConfigError: PropTypes.string,
-  setCustomConfigError: PropTypes.func.isRequired,
 };
 
 Step3CorrelationOrchestrator.defaultProps = {
   columnTypes: {},
-  livePreprocessingConfig: null,
-  preprocessingConfigEffective: null,
-  customConfigError: null,
 };
 
 export default Step3CorrelationOrchestrator;

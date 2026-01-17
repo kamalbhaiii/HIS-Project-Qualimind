@@ -97,48 +97,45 @@ function makePrefsStorageKey({ datasetId, jobId }) {
   return `viz_prefs:v4:${d}:${j}`;
 }
 
-function toActionCountSeries(columnActions) {
-  if (!columnActions || typeof columnActions !== "object") return [];
-  const out = [];
-  Object.entries(columnActions).forEach(([col, actions]) => {
-    const arr = Array.isArray(actions) ? actions : actions ? [actions] : [];
-    out.push({ label: col, value: arr.length });
-  });
-  out.sort((a, b) => (b.value || 0) - (a.value || 0));
-  return out;
+/* ------------------------- correlation helpers ------------------------- */
+
+function safeMatrixColumnsFromCorrelationResult(r) {
+  if (!r || typeof r !== "object") return [];
+  const cols = Array.isArray(r.matrix_columns)
+    ? r.matrix_columns
+    : Array.isArray(r.matrixColumns)
+    ? r.matrixColumns
+    : [];
+  return cols.filter(Boolean);
 }
 
-function normalizeCorrelationMeta(corr) {
-  if (!corr) return { mode: "none", analyses: [] };
+function safeColumnsFromCorrelationResult(r) {
+  if (!r || typeof r !== "object") return [];
+  const cols = Array.isArray(r.used_columns) ? r.used_columns : Array.isArray(r.usedColumns) ? r.usedColumns : [];
+  return cols.filter(Boolean);
+}
 
-  if (isPlainObject(corr) && corr.version === "1.0" && Array.isArray(corr.analyses)) {
-    const analyses = corr.analyses
-      .map((a, idx) => {
-        const id = String(a?.id || `analysis_${idx + 1}`);
-        const name = String(a?.name || `Correlation ${idx + 1}`);
-        const result = a?.result || null;
-        const effective = result || a;
-        return { id, name, raw: a, result: effective && isPlainObject(effective) ? effective : null };
-      })
-      .filter(Boolean);
+function safePairsFromCorrelationResult(r) {
+  if (!r || typeof r !== "object") return [];
+  const pairs = Array.isArray(r.top_pairs) ? r.top_pairs : Array.isArray(r.topPairs) ? r.topPairs : [];
+  return pairs;
+}
 
-    return {
-      mode: "multi",
-      primaryId: corr.primaryId ? String(corr.primaryId) : analyses[0]?.id || null,
-      summary: corr.summary || null,
-      analyses,
-    };
-  }
+function safeCorrelationMatrix(r) {
+  if (!r || typeof r !== "object") return null;
+  return r.matrix || null;
+}
 
-  if (isPlainObject(corr)) {
-    return {
-      mode: "single",
-      primaryId: "primary",
-      analyses: [{ id: "primary", name: "Correlation", raw: corr, result: corr }],
-    };
-  }
+function safeHeatmapColumns(r) {
+  const mCols = safeMatrixColumnsFromCorrelationResult(r);
+  if (mCols.length) return mCols;
 
-  return { mode: "none", analyses: [] };
+  // Legacy fallback: use used_columns only if it matches the matrix size
+  const cols = safeColumnsFromCorrelationResult(r);
+  const matrix = safeCorrelationMatrix(r);
+
+  if (Array.isArray(matrix) && matrix.length && cols.length === matrix.length) return cols;
+  return [];
 }
 
 /* -------- NEW: pair metric helpers (supports mixed metrics + legacy r) -------- */
@@ -182,23 +179,48 @@ function metricBadgeLabel(metric) {
   return m.toUpperCase();
 }
 
-/* -------- correlation result helpers (unchanged) -------- */
-
-function safeColumnsFromCorrelationResult(r) {
-  if (!r || typeof r !== "object") return [];
-  const cols = Array.isArray(r.used_columns) ? r.used_columns : Array.isArray(r.usedColumns) ? r.usedColumns : [];
-  return cols.filter(Boolean);
+function toActionCountSeries(columnActions) {
+  if (!columnActions || typeof columnActions !== "object") return [];
+  const out = [];
+  Object.entries(columnActions).forEach(([col, actions]) => {
+    const arr = Array.isArray(actions) ? actions : actions ? [actions] : [];
+    out.push({ label: col, value: arr.length });
+  });
+  out.sort((a, b) => (b.value || 0) - (a.value || 0));
+  return out;
 }
 
-function safePairsFromCorrelationResult(r) {
-  if (!r || typeof r !== "object") return [];
-  const pairs = Array.isArray(r.top_pairs) ? r.top_pairs : Array.isArray(r.topPairs) ? r.topPairs : [];
-  return pairs;
-}
+function normalizeCorrelationMeta(corr) {
+  if (!corr) return { mode: "none", analyses: [] };
 
-function safeCorrelationMatrix(r) {
-  if (!r || typeof r !== "object") return null;
-  return r.matrix || null;
+  if (isPlainObject(corr) && corr.version === "1.0" && Array.isArray(corr.analyses)) {
+    const analyses = corr.analyses
+      .map((a, idx) => {
+        const id = String(a?.id || `analysis_${idx + 1}`);
+        const name = String(a?.name || `Correlation ${idx + 1}`);
+        const result = a?.result || null;
+        const effective = result || a;
+        return { id, name, raw: a, result: effective && isPlainObject(effective) ? effective : null };
+      })
+      .filter(Boolean);
+
+    return {
+      mode: "multi",
+      primaryId: corr.primaryId ? String(corr.primaryId) : analyses[0]?.id || null,
+      summary: corr.summary || null,
+      analyses,
+    };
+  }
+
+  if (isPlainObject(corr)) {
+    return {
+      mode: "single",
+      primaryId: "primary",
+      analyses: [{ id: "primary", name: "Correlation", raw: corr, result: corr }],
+    };
+  }
+
+  return { mode: "none", analyses: [] };
 }
 
 /* ------------------------- word charts helpers ------------------------- */
@@ -418,7 +440,8 @@ const DatasetVisualizationPanel = ({
       showScalingStats: true,
       showPreprocessingImpact: true,
 
-      expandCustomize: true,
+      // expansions
+      expandCustomize: false, // now horizontal; keep collapsed by default
       expandAi: true,
       expandCorrelation: true,
       expandScatter: true,
@@ -460,10 +483,22 @@ const DatasetVisualizationPanel = ({
     safeSessionSet(prefsKey, defaultPrefs);
   }, [defaultPrefs, prefsKey]);
 
-  const [distDatasetMode, setDistDatasetMode] = useState("both"); // original | processed | both
-  const [catDatasetMode, setCatDatasetMode] = useState("original"); // original | processed
+  /* ------------------------- per-section dataset mode controls ------------------------- */
 
-  // Histogram columns
+  // Numeric distributions: original | processed | both
+  const [distDatasetMode, setDistDatasetMode] = useState("both");
+
+  // Categorical distribution: original | processed
+  const [catDatasetMode, setCatDatasetMode] = useState("original");
+
+  // Word charts: original | processed | both
+  const [wordDatasetMode, setWordDatasetMode] = useState("processed");
+
+  // Boxplot: processed | original
+  const [boxDatasetMode, setBoxDatasetMode] = useState("processed");
+
+  /* ------------------------- Histogram controls ------------------------- */
+
   const [histColA, setHistColA] = useState("");
   const [histColB, setHistColB] = useState("");
 
@@ -497,7 +532,8 @@ const DatasetVisualizationPanel = ({
     return out;
   }, [processedRows, histTargets]);
 
-  // Categorical distribution
+  /* ------------------------- Categorical distribution ------------------------- */
+
   const [catCol, setCatCol] = useState("");
 
   useEffect(() => {
@@ -512,8 +548,8 @@ const DatasetVisualizationPanel = ({
     return buildCategoryCounts(rows, catCol, 12);
   }, [catDatasetMode, processedRows, originalRows, catCol]);
 
-  // Word charts
-  const [wordDatasetMode, setWordDatasetMode] = useState("processed"); // original | processed | both
+  /* ------------------------- Word charts ------------------------- */
+
   const [wordSource, setWordSource] = useState("__ALL_TEXT__");
 
   const wordSourceOptions = useMemo(() => {
@@ -535,15 +571,14 @@ const DatasetVisualizationPanel = ({
   const wordCounts = useMemo(() => buildWordCounts(wordRows, wordSource, { maxWords: 80 }), [wordRows, wordSource]);
   const topTermsBar = useMemo(() => toBarSeriesFromWords(wordCounts, 20), [wordCounts]);
 
-  // Numeric-summary driven selections (shared with boxplot/ECDF)
+  /* ------------------------- Numeric summary / box / ECDF ------------------------- */
+
   const [summaryCols, setSummaryCols] = useState([]);
   useEffect(() => {
     const cols = (numericColsProcessed?.length ? numericColsProcessed : numericColsOriginal) || [];
     const defaults = cols.slice(0, 4);
     setSummaryCols((prev) => (prev?.length ? prev.filter((c) => cols.includes(c)).slice(0, 6) : defaults));
   }, [numericColsProcessed, numericColsOriginal]);
-
-  const [boxDatasetMode, setBoxDatasetMode] = useState("processed"); // processed | original
 
   const [ecdfCol, setEcdfCol] = useState("");
   useEffect(() => {
@@ -552,14 +587,16 @@ const DatasetVisualizationPanel = ({
     setEcdfCol((prev) => (prev && cols.includes(prev) ? prev : cols[0]));
   }, [numericColsProcessed, numericColsOriginal]);
 
-  // Category drift col
+  /* ------------------------- Category drift ------------------------- */
+
   const [driftCatCol, setDriftCatCol] = useState("");
   useEffect(() => {
     const cols = Array.from(new Set([...(categoricalColsOriginal || []), ...(categoricalColsProcessed || [])]));
     setDriftCatCol((prev) => (prev && cols.includes(prev) ? prev : (cols?.[0] || "")));
   }, [categoricalColsOriginal, categoricalColsProcessed]);
 
-  // Insights
+  /* ------------------------- AI insights ------------------------- */
+
   const [insights, setInsights] = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState(null);
@@ -632,6 +669,8 @@ const DatasetVisualizationPanel = ({
     fetchInsights({ bypassCache: false });
   }, [fetchInsights]);
 
+  /* ------------------------- dataset header ------------------------- */
+
   const datasetHeader = useMemo(() => {
     const previewOriginal = Array.isArray(originalRows) ? originalRows.length : 0;
     const previewProcessed = Array.isArray(processedRows) ? processedRows.length : 0;
@@ -677,6 +716,10 @@ const DatasetVisualizationPanel = ({
         };
       });
   }, [activeCorrPairs, scatterPair]);
+
+  
+
+  /* ------------------------- correlation renderer ------------------------- */
 
   const renderCorrelation = useCallback(() => {
     if (!corrNormalized || corrNormalized.mode === "none" || !corrNormalized.analyses.length) {
@@ -729,8 +772,10 @@ const DatasetVisualizationPanel = ({
 
             const cols = safeColumnsFromCorrelationResult(r);
             const matrix = safeCorrelationMatrix(r);
+            const heatmapCols = safeHeatmapColumns(r);
             const pairs = safePairsFromCorrelationResult(r);
 
+            const matrixSize = Array.isArray(matrix) ? matrix.length : 0;
             const isActive = a.id === activeCorrAnalysisId;
 
             return (
@@ -752,6 +797,7 @@ const DatasetVisualizationPanel = ({
                     )}
 
                     <Chip size="small" label={`${cols.length} cols`} variant="outlined" />
+                    {matrixSize ? <Chip size="small" label={`Matrix: ${matrixSize}×${matrixSize}`} variant="outlined" /> : null}
                     <Chip size="small" label={`${pairs.length} pairs`} variant="outlined" />
                   </FlexBox>
                 </AccordionSummary>
@@ -763,10 +809,14 @@ const DatasetVisualizationPanel = ({
                     <Alert severity="info">{message}</Alert>
                   ) : !matrix ? (
                     <Alert severity="info">Correlation matrix is not available.</Alert>
+                  ) : !heatmapCols.length ? (
+                    <Alert severity="info">
+                      Correlation matrix is available, but column labels are missing or inconsistent with matrix size.
+                    </Alert>
                   ) : (
                     <EHeatmap
                       title="Correlation heatmap"
-                      columns={cols}
+                      columns={heatmapCols}
                       matrix={matrix}
                       filename={`${filename || "dataset"}_${a.id}_correlation_heatmap`}
                       showDownload
@@ -840,7 +890,7 @@ const DatasetVisualizationPanel = ({
     );
   }, [corrNormalized, activeCorrAnalysisId, filename]);
 
-  /* ------------------------- visibility guards (do not show if data missing) ------------------------- */
+  /* ------------------------- visibility guards ------------------------- */
 
   const canShowCorrelation = vizPrefs.showCorrelation && corrNormalized?.analyses?.length > 0;
   const canShowScatter =
@@ -884,202 +934,476 @@ const DatasetVisualizationPanel = ({
   const canShowCategoryDrift =
     vizPrefs.showCategoryDrift && !!driftCatCol && (categoricalColsOriginal.length + categoricalColsProcessed.length) > 0;
 
-  return (
-    <FlexBox
+/* ------------------------- top sticky horizontal settings bar (collapsible) ------------------------- */
+
+const [settingsOpen, setSettingsOpen] = useState(() => {
+  const cached = safeSessionGet(`${prefsKey}:settings_open`);
+  return typeof cached === "boolean" ? cached : false;
+});
+
+useEffect(() => {
+  safeSessionSet(`${prefsKey}:settings_open`, settingsOpen);
+}, [prefsKey, settingsOpen]);
+
+const SettingsBar = (
+  <Box
+    sx={{
+      position: "sticky",
+      top: 0,
+      zIndex: (theme) => theme.zIndex.appBar - 1,
+      backgroundColor: (theme) => theme.palette.background.default,
+      pb: 1.25,
+      mb: 1.5,
+      borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+    }}
+  >
+    <ChartCard
+      title="Visualization settings"
+      subtitle={settingsOpen ? "Display controls (sticky)." : "Collapsed"}
+      loading={showLoading}
       sx={{
-        display: "grid",
-        gridTemplateColumns: {
-          xs: "1fr",
-          lg: "minmax(280px, 25%) minmax(0, 75%)",
-        },
-        gap: { xs: 2, sm: 2.5 },
         width: "100%",
-        minWidth: 0,
-        alignItems: "start",
+        "& .MuiCardContent-root": { p: 1.5 },
       }}
     >
-      {/* LEFT: compact settings */}
-      <Box sx={{ position: { lg: "sticky" }, top: { lg: 12 }, zIndex: 1, minWidth: 0 }}>
-        <ChartCard
-          title="Visualization settings"
-          subtitle="Display controls and inputs."
-          loading={showLoading}
-          sx={{ "& .MuiCardContent-root": { p: 1.5 } }}
-        >
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1 }}>
-            <Chip size={leftChipSize} label={`Preview (orig): ${datasetHeader.previewOriginal}`} />
-            <Chip size={leftChipSize} label={`Preview (proc): ${datasetHeader.previewProcessed}`} />
-            {datasetHeader.procRows != null && <Chip size={leftChipSize} label={`Rows: ${datasetHeader.procRows}`} />}
-            {datasetHeader.procCols != null && <Chip size={leftChipSize} label={`Cols: ${datasetHeader.procCols}`} />}
-            <Chip size={leftChipSize} label={`Num o/p: ${datasetHeader.numOrig}/${datasetHeader.numProc}`} variant="outlined" />
-            <Chip size={leftChipSize} label={`Cat o/p: ${datasetHeader.catOrig}/${datasetHeader.catProc}`} variant="outlined" />
-          </Box>
+      {/* Header row: chips + collapse toggle */}
+      <FlexBox
+        sx={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 1,
+          mb: 1,
+        }}
+      >
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+          <Chip size={leftChipSize} label={`Preview (orig): ${datasetHeader.previewOriginal}`} />
+          <Chip size={leftChipSize} label={`Preview (proc): ${datasetHeader.previewProcessed}`} />
+          {datasetHeader.procRows != null && <Chip size={leftChipSize} label={`Rows: ${datasetHeader.procRows}`} />}
+          {datasetHeader.procCols != null && <Chip size={leftChipSize} label={`Cols: ${datasetHeader.procCols}`} />}
+          <Chip
+            size={leftChipSize}
+            label={`Num o/p: ${datasetHeader.numOrig}/${datasetHeader.numProc}`}
+            variant="outlined"
+          />
+          <Chip
+            size={leftChipSize}
+            label={`Cat o/p: ${datasetHeader.catOrig}/${datasetHeader.catProc}`}
+            variant="outlined"
+          />
+        </Box>
 
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => setSettingsOpen((v) => !v)}
+          sx={{ fontSize: 12, py: 0.5, whiteSpace: "nowrap" }}
+        >
+          {settingsOpen ? "Collapse" : "Expand"}
+        </Button>
+      </FlexBox>
+
+      {/* Collapsible content */}
+      {settingsOpen && (
+        <>
           <Alert severity="info" sx={{ mb: 1.25, py: 0.5, "& .MuiAlert-message": { fontSize: 12 } }}>
             {previewNote}
           </Alert>
 
-          <Accordion expanded={vizPrefs.expandCustomize} onChange={() => updatePref("expandCustomize")} disableGutters sx={compactAccordionSx}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
-              <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <TuneIcon fontSize="small" />
-                <Typography variant={leftTitleVariant} sx={{ fontWeight: 900 }}>
-                  Customize
-                </Typography>
-              </FlexBox>
-            </AccordionSummary>
+          {/* Horizontal control row */}
+          <FlexBox
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 1.25,
+              rowGap: 0.75,
+              justifyContent: "space-between",
+            }}
+          >
+            <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              <TuneIcon fontSize="small" />
+              <Typography variant={leftTitleVariant} sx={{ fontWeight: 900 }}>
+                Toggle sections
+              </Typography>
 
-            <AccordionDetails sx={{ pt: 0.5 }}>
-              <FormGroup sx={{ gap: 0.25 }}>
+              <FormGroup row sx={{ gap: 1 }}>
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showAiInference} onChange={() => updatePref("showAiInference")} />}
-                  label="AI inference"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showAiInference}
+                      onChange={() => updatePref("showAiInference")}
+                    />
+                  }
+                  label="AI"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCorrelation} onChange={() => updatePref("showCorrelation")} />}
-                  label="Correlation matrices"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showCorrelation}
+                      onChange={() => updatePref("showCorrelation")}
+                    />
+                  }
+                  label="Correlation"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCorrelationScatter} onChange={() => updatePref("showCorrelationScatter")} />}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showCorrelationScatter}
+                      onChange={() => updatePref("showCorrelationScatter")}
+                    />
+                  }
                   label="Scatter"
                 />
-
-                <Divider sx={{ my: 1.25 }} />
-
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showMissingness} onChange={() => updatePref("showMissingness")} />}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showMissingness}
+                      onChange={() => updatePref("showMissingness")}
+                    />
+                  }
                   label="Missingness"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showDistributions} onChange={() => updatePref("showDistributions")} />}
-                  label="Numeric distributions"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showDistributions}
+                      onChange={() => updatePref("showDistributions")}
+                    />
+                  }
+                  label="Distributions"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showNumericSummary} onChange={() => updatePref("showNumericSummary")} />}
-                  label="Numeric summary"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showNumericSummary}
+                      onChange={() => updatePref("showNumericSummary")}
+                    />
+                  }
+                  label="Summary"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showBoxplots} onChange={() => updatePref("showBoxplots")} />}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showBoxplots}
+                      onChange={() => updatePref("showBoxplots")}
+                    />
+                  }
                   label="Boxplots"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showECDF} onChange={() => updatePref("showECDF")} />}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showECDF}
+                      onChange={() => updatePref("showECDF")}
+                    />
+                  }
                   label="ECDF"
                 />
-
-                <Divider sx={{ my: 1.25 }} />
-
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCategorical} onChange={() => updatePref("showCategorical")} />}
-                  label="Categorical distribution"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showCategorical}
+                      onChange={() => updatePref("showCategorical")}
+                    />
+                  }
+                  label="Categorical"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showCategoryDrift} onChange={() => updatePref("showCategoryDrift")} />}
-                  label="Category drift"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showCategoryDrift}
+                      onChange={() => updatePref("showCategoryDrift")}
+                    />
+                  }
+                  label="Cat drift"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showWordCharts} onChange={() => updatePref("showWordCharts")} />}
-                  label="Word charts"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showWordCharts}
+                      onChange={() => updatePref("showWordCharts")}
+                    />
+                  }
+                  label="Words"
                 />
-
-                <Divider sx={{ my: 1.25 }} />
-
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showScalingStats} onChange={() => updatePref("showScalingStats")} />}
-                  label="Scaling statistics"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showScalingStats}
+                      onChange={() => updatePref("showScalingStats")}
+                    />
+                  }
+                  label="Scaling"
                 />
                 <FormControlLabel
                   sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  control={<Switch sx={compactSwitchSx} size="small" checked={vizPrefs.showPreprocessingImpact} onChange={() => updatePref("showPreprocessingImpact")} />}
-                  label="Preprocessing impact"
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.showPreprocessingImpact}
+                      onChange={() => updatePref("showPreprocessingImpact")}
+                    />
+                  }
+                  label="Impact"
                 />
               </FormGroup>
+            </FlexBox>
 
-              <Divider sx={{ my: 1.25 }} />
+            {/* Actions */}
+            <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              <Tooltip title="Reset toggles/expansion to defaults for this dataset/job">
+                <Button size="small" variant="outlined" onClick={resetPrefs} sx={{ fontSize: 12, py: 0.5 }}>
+                  Reset
+                </Button>
+              </Tooltip>
 
-              <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel id="dist-mode-label">Numeric dataset</InputLabel>
-                  <Select labelId="dist-mode-label" value={distDatasetMode} label="Numeric dataset" onChange={(e) => setDistDatasetMode(e.target.value)}>
-                    <MenuItem value="both">Both</MenuItem>
-                    <MenuItem value="original">Original</MenuItem>
-                    <MenuItem value="processed">Processed</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl size="small" fullWidth>
-                  <InputLabel id="cat-mode-label">Categorical dataset</InputLabel>
-                  <Select labelId="cat-mode-label" value={catDatasetMode} label="Categorical dataset" onChange={(e) => setCatDatasetMode(e.target.value)}>
-                    <MenuItem value="original">Original</MenuItem>
-                    <MenuItem value="processed">Processed</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl size="small" fullWidth>
-                  <InputLabel id="word-mode-label">Word charts dataset</InputLabel>
-                  <Select labelId="word-mode-label" value={wordDatasetMode} label="Word charts dataset" onChange={(e) => setWordDatasetMode(e.target.value)}>
-                    <MenuItem value="processed">Processed</MenuItem>
-                    <MenuItem value="original">Original</MenuItem>
-                    <MenuItem value="both">Both</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl size="small" fullWidth>
-                  <InputLabel id="box-mode-label">Boxplot dataset</InputLabel>
-                  <Select labelId="box-mode-label" value={boxDatasetMode} label="Boxplot dataset" onChange={(e) => setBoxDatasetMode(e.target.value)}>
-                    <MenuItem value="processed">Processed</MenuItem>
-                    <MenuItem value="original">Original</MenuItem>
-                  </Select>
-                </FormControl>
-              </FlexBox>
-
-              <Divider sx={{ my: 1.25 }} />
-
-              <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                <Tooltip title="Reset toggles/expansion to defaults for this dataset/job">
-                  <Button size="small" variant="outlined" onClick={resetPrefs} sx={{ fontSize: 12, py: 0.5 }}>
-                    Reset
+              {aiInferenceEnabled && (
+                <Tooltip title="Force re-generate AI insights (bypasses cache)">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<RefreshIcon fontSize="small" />}
+                    onClick={() => fetchInsights({ bypassCache: true })}
+                    disabled={showLoading || insightsLoading}
+                    sx={{ fontSize: 12, py: 0.5 }}
+                  >
+                    Refresh AI
                   </Button>
                 </Tooltip>
+              )}
+            </FlexBox>
+          </FlexBox>
 
-                {aiInferenceEnabled && (
-                  <Tooltip title="Force re-generate AI insights (bypasses cache)">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<RefreshIcon fontSize="small" />}
-                      onClick={() => fetchInsights({ bypassCache: true })}
-                      disabled={showLoading || insightsLoading}
-                      sx={{ fontSize: 12, py: 0.5 }}
-                    >
-                      Refresh AI
-                    </Button>
-                  </Tooltip>
-                )}
-              </FlexBox>
-
-              <Typography variant={leftBodyVariant} color="textSecondary" sx={{ mt: 1 }}>
-                Tip: Enable only sections you want to reduce noise.
+          {/* Optional: advanced expansion controls */}
+          <Accordion
+            expanded={vizPrefs.expandCustomize}
+            onChange={() => updatePref("expandCustomize")}
+            disableGutters
+            sx={{ ...compactAccordionSx, mt: 1.25 }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={compactSummarySx}>
+              <Typography variant={leftTitleVariant} sx={{ fontWeight: 900 }}>
+                Expand/collapse sections
               </Typography>
+              <Typography variant={leftBodyVariant} color="textSecondary" sx={{ ml: 1 }}>
+                (Optional; reduces scroll noise)
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ pt: 0.5 }}>
+              <FormGroup row sx={{ gap: 1 }}>
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandAi}
+                      onChange={() => updatePref("expandAi")}
+                    />
+                  }
+                  label="AI"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandCorrelation}
+                      onChange={() => updatePref("expandCorrelation")}
+                    />
+                  }
+                  label="Correlation"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandScatter}
+                      onChange={() => updatePref("expandScatter")}
+                    />
+                  }
+                  label="Scatter"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandMissingness}
+                      onChange={() => updatePref("expandMissingness")}
+                    />
+                  }
+                  label="Missingness"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandDistributions}
+                      onChange={() => updatePref("expandDistributions")}
+                    />
+                  }
+                  label="Distributions"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandNumericSummary}
+                      onChange={() => updatePref("expandNumericSummary")}
+                    />
+                  }
+                  label="Summary"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandBoxplots}
+                      onChange={() => updatePref("expandBoxplots")}
+                    />
+                  }
+                  label="Boxplots"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandECDF}
+                      onChange={() => updatePref("expandECDF")}
+                    />
+                  }
+                  label="ECDF"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandCategorical}
+                      onChange={() => updatePref("expandCategorical")}
+                    />
+                  }
+                  label="Categorical"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandCategoryDrift}
+                      onChange={() => updatePref("expandCategoryDrift")}
+                    />
+                  }
+                  label="Cat drift"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandWordCharts}
+                      onChange={() => updatePref("expandWordCharts")}
+                    />
+                  }
+                  label="Words"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandScaling}
+                      onChange={() => updatePref("expandScaling")}
+                    />
+                  }
+                  label="Scaling"
+                />
+                <FormControlLabel
+                  sx={{ "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                  control={
+                    <Switch
+                      sx={compactSwitchSx}
+                      size="small"
+                      checked={vizPrefs.expandPreprocess}
+                      onChange={() => updatePref("expandPreprocess")}
+                    />
+                  }
+                  label="Impact"
+                />
+              </FormGroup>
             </AccordionDetails>
           </Accordion>
-        </ChartCard>
-      </Box>
+        </>
+      )}
+    </ChartCard>
+  </Box>
+);
 
-      {/* RIGHT: charts */}
-      <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0 }}>
+
+  /* ------------------------- main layout ------------------------- */
+
+  // NOTE: now full-width; settings bar is sticky above charts
+  return (
+    <FlexBox sx={{ width: "100%", minWidth: 0 }}>
+      <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 2, width: "100%", minWidth: 0 }}>
+        {SettingsBar}
+
         {/* AI */}
         <VizSection
           visible={aiInferenceEnabled && vizPrefs.showAiInference}
@@ -1135,7 +1459,8 @@ const DatasetVisualizationPanel = ({
               </ul>
 
               <Typography variant="caption" color="textSecondary" sx={{ display: "block", mt: 1.5 }}>
-                Confidence: {typeof insights.confidence === "number" ? `${Math.round(insights.confidence * 100)}%` : "—"}
+                Confidence:{" "}
+                {typeof insights.confidence === "number" ? `${Math.round(insights.confidence * 100)}%` : "—"}
               </Typography>
             </Box>
           )}
@@ -1145,7 +1470,11 @@ const DatasetVisualizationPanel = ({
         <VizSection
           visible={canShowCorrelation}
           title="Correlation"
-          subtitle={corrNormalized.mode === "multi" ? "Multiple correlation analyses computed by the backend." : "Correlation analysis computed by the backend."}
+          subtitle={
+            corrNormalized.mode === "multi"
+              ? "Multiple correlation analyses computed by the backend."
+              : "Correlation analysis computed by the backend."
+          }
           footer={previewNote}
           loading={showLoading}
           expanded={vizPrefs.expandCorrelation}
@@ -1155,11 +1484,11 @@ const DatasetVisualizationPanel = ({
           {renderCorrelation()}
         </VizSection>
 
-        {/* Scatter */}
+        {/* Scatter (processed only; because scatter uses processedRows + correlation pairs) */}
         <VizSection
           visible={canShowScatter}
           title="Correlation scatter plot"
-          subtitle="Scatter plot based on active correlation analysis."
+          subtitle="Scatter plot based on active correlation analysis (processed rows)."
           footer={previewNote}
           loading={showLoading}
           expanded={vizPrefs.expandScatter}
@@ -1194,7 +1523,7 @@ const DatasetVisualizationPanel = ({
           />
         </VizSection>
 
-        {/* Missingness */}
+        {/* Missingness (mode: original/processed/both INSIDE section) */}
         <VizSection
           visible={canShowMissingness}
           title="Missingness"
@@ -1205,10 +1534,34 @@ const DatasetVisualizationPanel = ({
           onToggleExpanded={() => updatePref("expandMissingness")}
           summaryLabel="Missing values"
         >
-          <MissingnessSection originalRows={originalRows} processedRows={processedRows} filename={filename} />
+          <FlexBox sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", mb: 1.25 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              Dataset
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel id="missing-mode-label">Missingness dataset</InputLabel>
+              <Select
+                labelId="missing-mode-label"
+                value={distDatasetMode} // reuse: both/original/processed
+                label="Missingness dataset"
+                onChange={(e) => setDistDatasetMode(e.target.value)}
+              >
+                <MenuItem value="both">Both</MenuItem>
+                <MenuItem value="original">Original</MenuItem>
+                <MenuItem value="processed">Processed</MenuItem>
+              </Select>
+            </FormControl>
+          </FlexBox>
+
+          {/* IMPORTANT: MissingnessSection already renders both; gate inputs based on selection */}
+          <MissingnessSection
+            originalRows={distDatasetMode === "processed" ? [] : originalRows}
+            processedRows={distDatasetMode === "original" ? [] : processedRows}
+            filename={filename}
+          />
         </VizSection>
 
-        {/* Numeric distributions */}
+        {/* Numeric distributions (mode inside section) */}
         <VizSection
           visible={canShowNumericDistributions}
           title="Numeric distributions"
@@ -1220,6 +1573,26 @@ const DatasetVisualizationPanel = ({
           summaryLabel="Histograms"
         >
           <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              Dataset
+            </Typography>
+
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel id="dist-mode-label">Numeric dataset</InputLabel>
+              <Select
+                labelId="dist-mode-label"
+                value={distDatasetMode}
+                label="Numeric dataset"
+                onChange={(e) => setDistDatasetMode(e.target.value)}
+              >
+                <MenuItem value="both">Both</MenuItem>
+                <MenuItem value="original">Original</MenuItem>
+                <MenuItem value="processed">Processed</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
+
             <Typography variant="body2" sx={{ fontWeight: 900 }}>
               Columns
             </Typography>
@@ -1243,8 +1616,6 @@ const DatasetVisualizationPanel = ({
               disableClearable
               disabled={!numericOptions.length}
             />
-
-            <Chip size="small" label={`Mode: ${distDatasetMode}`} variant="outlined" />
           </FlexBox>
 
           <Divider sx={{ mb: 1.5 }} />
@@ -1308,7 +1679,7 @@ const DatasetVisualizationPanel = ({
           </FlexBox>
         </VizSection>
 
-        {/* Numeric summary */}
+        {/* Numeric summary (always both: original vs processed) */}
         <VizSection
           visible={canShowNumericSummary}
           title="Numeric summary"
@@ -1335,15 +1706,10 @@ const DatasetVisualizationPanel = ({
             />
           </FlexBox>
 
-          <NumericSummarySection
-            originalRows={originalRows}
-            processedRows={processedRows}
-            columns={summaryCols}
-            filename={filename}
-          />
+          <NumericSummarySection originalRows={originalRows} processedRows={processedRows} columns={summaryCols} filename={filename} />
         </VizSection>
 
-        {/* Boxplots */}
+        {/* Boxplots (mode inside section: original vs processed) */}
         <VizSection
           visible={canShowBoxplot}
           title="Boxplots"
@@ -1354,6 +1720,24 @@ const DatasetVisualizationPanel = ({
           onToggleExpanded={() => updatePref("expandBoxplots")}
           summaryLabel="Boxplot"
         >
+          <FlexBox sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", mb: 1.25 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              Dataset
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel id="box-mode-label">Boxplot dataset</InputLabel>
+              <Select
+                labelId="box-mode-label"
+                value={boxDatasetMode}
+                label="Boxplot dataset"
+                onChange={(e) => setBoxDatasetMode(e.target.value)}
+              >
+                <MenuItem value="processed">Processed</MenuItem>
+                <MenuItem value="original">Original</MenuItem>
+              </Select>
+            </FormControl>
+          </FlexBox>
+
           <BoxplotSection
             rows={boxDatasetMode === "original" ? originalRows : processedRows}
             columns={summaryCols}
@@ -1362,7 +1746,7 @@ const DatasetVisualizationPanel = ({
           />
         </VizSection>
 
-        {/* ECDF */}
+        {/* ECDF (always both; section is column-select only) */}
         <VizSection
           visible={canShowECDF}
           title="ECDF"
@@ -1385,15 +1769,10 @@ const DatasetVisualizationPanel = ({
             />
           </FlexBox>
 
-          <ECDFSection
-            originalRows={originalRows}
-            processedRows={processedRows}
-            column={ecdfCol}
-            filename={filename}
-          />
+          <ECDFSection originalRows={originalRows} processedRows={processedRows} column={ecdfCol} filename={filename} />
         </VizSection>
 
-        {/* Categorical distribution */}
+        {/* Categorical distribution (mode inside section: original vs processed) */}
         <VizSection
           visible={canShowCategorical}
           title="Categorical distribution"
@@ -1405,6 +1784,25 @@ const DatasetVisualizationPanel = ({
           summaryLabel="Category counts"
         >
           <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              Dataset
+            </Typography>
+
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel id="cat-mode-label">Categorical dataset</InputLabel>
+              <Select
+                labelId="cat-mode-label"
+                value={catDatasetMode}
+                label="Categorical dataset"
+                onChange={(e) => setCatDatasetMode(e.target.value)}
+              >
+                <MenuItem value="original">Original</MenuItem>
+                <MenuItem value="processed">Processed</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
+
             <Typography variant="body2" sx={{ fontWeight: 900 }}>
               Column
             </Typography>
@@ -1443,7 +1841,7 @@ const DatasetVisualizationPanel = ({
           />
         </VizSection>
 
-        {/* Category drift */}
+        {/* Category drift (always both; column-select only) */}
         <VizSection
           visible={canShowCategoryDrift}
           title="Category drift"
@@ -1473,17 +1871,12 @@ const DatasetVisualizationPanel = ({
             </FormControl>
           </FlexBox>
 
-          <CategoryDriftSection
-            originalRows={originalRows}
-            processedRows={processedRows}
-            column={driftCatCol}
-            filename={filename}
-          />
+          <CategoryDriftSection originalRows={originalRows} processedRows={processedRows} column={driftCatCol} filename={filename} />
         </VizSection>
 
-        {/* Word charts */}
+        {/* Word charts (mode inside section: original/processed/both) */}
         <VizSection
-          visible={canShowWordCharts}
+          visible={vizPrefs.showWordCharts && (wordCounts || []).length > 0}
           title="Word charts"
           subtitle="Quick text signal from preview rows (word cloud + top terms)."
           footer={previewNote}
@@ -1493,6 +1886,26 @@ const DatasetVisualizationPanel = ({
           summaryLabel="Word cloud and top terms"
         >
           <FlexBox sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              Dataset
+            </Typography>
+
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel id="word-mode-label">Word charts dataset</InputLabel>
+              <Select
+                labelId="word-mode-label"
+                value={wordDatasetMode}
+                label="Word charts dataset"
+                onChange={(e) => setWordDatasetMode(e.target.value)}
+              >
+                <MenuItem value="processed">Processed</MenuItem>
+                <MenuItem value="original">Original</MenuItem>
+                <MenuItem value="both">Both</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
+
             <Typography variant="body2" sx={{ fontWeight: 900 }}>
               Text source
             </Typography>
@@ -1608,7 +2021,7 @@ const DatasetVisualizationPanel = ({
           />
         </VizSection>
 
-        {/* Empty state: when everything is hidden */}
+        {/* Empty state */}
         {!showLoading &&
           !(
             (aiInferenceEnabled && vizPrefs.showAiInference) ||
@@ -1621,7 +2034,7 @@ const DatasetVisualizationPanel = ({
             canShowECDF ||
             canShowCategorical ||
             canShowCategoryDrift ||
-            canShowWordCharts ||
+            (vizPrefs.showWordCharts && (wordCounts || []).length > 0) ||
             canShowScalingStats ||
             (vizPrefs.showPreprocessingImpact && actionCountSeries.length > 0)
           ) && (
@@ -1669,3 +2082,4 @@ DatasetVisualizationPanel.defaultProps = {
 };
 
 export default DatasetVisualizationPanel;
+

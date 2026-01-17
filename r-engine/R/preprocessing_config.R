@@ -9,9 +9,6 @@
 # 2) numeric type inference
 # These are preflight sanitation steps (not "tasks").
 
-# ---------- small utility ----------
-`%||%` <- function(a, b) if (!is.null(a)) a else b
-
 # ---------- helpers ----------
 
 normalize_config <- function(cfg) {
@@ -170,6 +167,8 @@ preflight_missing_token_normalization_all <- function(df, actions, tokens) {
       # mark tokens -> NA
       v1[v1 %in% tokens] <- NA
 
+      # changed?
+      # compare using is.na + identical where possible
       if (!identical(v0, v1)) changed_any <- TRUE
 
       df[[col]] <- v1
@@ -198,6 +197,7 @@ preflight_numeric_type_inference_all <- function(df, actions, threshold = 0.9) {
       suppressWarnings(num_v <- as.numeric(non_na))
       if (!all(is.na(num_v))) {
         suppressWarnings(vn <- as.numeric(v))
+        # conversion happened
         df[[col]] <- vn
         changed_any <- TRUE
         actions[[col]] <- c(actions[[col]] %||% character(), "preflight:numeric_type_inference")
@@ -223,6 +223,7 @@ coerce_numeric_column_strict <- function(x) {
     return(xn)
   }
 
+  # If it's some other type, return as-is (imputer will skip)
   x
 }
 
@@ -238,6 +239,7 @@ impute_numeric_median <- function(df, cols, actions) {
       df[[col]] <- v2
       actions[[col]] <- c(actions[[col]] %||% character(), "missing_values:numeric_median")
     } else {
+      # still assign coerced vector (keeps numerics numeric even if no NA)
       df[[col]] <- v2
     }
   }
@@ -358,7 +360,7 @@ clean_category_labels_method <- function(df, cols, actions) {
       vv <- stringr::str_replace_all(vv, "[^a-z0-9\\s]", " ")
       vv <- stringr::str_replace_all(vv, "\\s+", "_")
 
-      # normalize underscores
+      # NEW: normalize underscores (covers trailing punctuation like "BLUE!" -> "blue")
       vv <- stringr::str_replace_all(vv, "_+", "_")
       vv <- stringr::str_replace_all(vv, "^_+|_+$", "")
 
@@ -513,9 +515,6 @@ preprocess_with_config <- function(df, config_raw) {
   parameters_out <- list()
   categorical_snapshot <- NULL
 
-  # FIX: track ONLY the columns that were actually targeted by encoding
-  encoded_source_columns <- character()
-
   for (i in seq_along(cfg$steps)) {
     st <- cfg$steps[[i]]
     task <- st$task
@@ -603,12 +602,8 @@ preprocess_with_config <- function(df, config_raw) {
 
     } else if (task == "encoding") {
       if (method == "auto") {
-        # FIX: remember which source columns were targeted by encoding
-        encoded_source_columns <- unique(c(encoded_source_columns, target_cols))
-
         snap <- snapshot_categorical_columns(df, target_cols)
         categorical_snapshot <- merge_categorical_snapshots(categorical_snapshot, snap)
-
         out <- encode_categoricals_method(
           df,
           target_cols,
@@ -650,21 +645,10 @@ preprocess_with_config <- function(df, config_raw) {
     col_types <- detect_column_types(df)
   }
 
-  # ----------------------------
-  # FIXED POST-ENCODING HANDLING
-  # ----------------------------
-  # Old behavior (bug): remove ALL categorical columns when encoding ran.
-  # New behavior: remove ONLY the original source columns that were targeted by encoding,
-  # and ONLY if they are categorical at this point. Keep all other categoricals untouched.
   if (any(executed_steps == "encoding:auto")) {
-    drop_cols <- intersect(encoded_source_columns, colnames(df))
-    if (length(drop_cols)) {
-      drop_cols <- drop_cols[sapply(drop_cols, function(cn) {
-        is.character(df[[cn]]) || is.factor(df[[cn]])
-      })]
-      if (length(drop_cols)) {
-        df <- df[, setdiff(colnames(df), drop_cols), drop = FALSE]
-      }
+    col_types2 <- detect_column_types(df)
+    if (length(col_types2$categorical) > 0) {
+      df <- df[, setdiff(colnames(df), col_types2$categorical), drop = FALSE]
     }
 
     # Reattach categorical strings for UI features (Category Drift, etc.)
@@ -695,10 +679,7 @@ preprocess_with_config <- function(df, config_raw) {
     rare_category_info        = rare_category_info,
     high_cardinality_columns  = high_cardinality_columns,
 
-    parameters                = parameters_out,
-
-    # helpful for debugging / audits
-    encoded_source_columns    = encoded_source_columns
+    parameters                = parameters_out
   )
 
   list(data = df, metadata = metadata)

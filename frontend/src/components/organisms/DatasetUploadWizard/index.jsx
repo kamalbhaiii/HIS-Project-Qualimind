@@ -177,7 +177,11 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
 
     // reset wizard
     setStep(0);
-    setDefaults((d) => ensureDefaults(d));
+
+    // IMPORTANT: Fix-1 keeps defaults stable; we do not re-set defaults here unless you want to reset them
+    // If you want to reset defaults on each new file, uncomment the next line:
+    // setDefaults((d) => ensureDefaults(d));
+
     setOverrides({});
     setPreprocessingConfig(null);
 
@@ -256,11 +260,12 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     return (selectedColumns || []).some((c) => isCategoricalType(columnTypes?.[c]));
   }, [selectedColumns, columnTypes]);
 
-  // LIVE preprocessing config generation from overrides ONLY (unless custom config is used)
+  /**
+   * FIX-1:
+   * Build preprocessingConfig ONLY when overrides/columns/types/custom-mode change.
+   * Do NOT call setDefaults here.
+   */
   useEffect(() => {
-    const safeDefaults = ensureDefaults(defaults);
-    setDefaults(safeDefaults);
-
     if (useCustomConfig) return;
 
     const hasOverrides = overrides && Object.keys(overrides).length > 0;
@@ -275,13 +280,8 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       overrides,
     });
 
-    if (!cfg?.steps?.length) {
-      setPreprocessingConfig(null);
-      return;
-    }
-
-    setPreprocessingConfig(cfg);
-  }, [selectedColumns, columnTypes, defaults, overrides, useCustomConfig]);
+    setPreprocessingConfig(cfg?.steps?.length ? cfg : null);
+  }, [selectedColumns, columnTypes, overrides, useCustomConfig]);
 
   const handleToggleColumn = (col) => {
     setSelectedColumns((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
@@ -335,8 +335,8 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       if (!v.ok) return { ok: false, message: v.message || "Invalid custom preprocessingConfig." };
       cfgToSend = customConfigParsed;
     } else {
-      const hasOverrides = overrides && Object.keys(overrides).length > 0;
-      if (hasOverrides && preprocessingConfig?.steps?.length) {
+      const hasOverridesLocal = overrides && Object.keys(overrides).length > 0;
+      if (hasOverridesLocal && preprocessingConfig?.steps?.length) {
         const v = validatePreprocessingConfig(preprocessingConfig);
         if (!v.ok) return { ok: false, message: v.message || "Invalid preprocessingConfig." };
         cfgToSend = preprocessingConfig;
@@ -465,8 +465,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
               {datasetName?.trim() ? datasetName.trim() : "Untitled dataset"}
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Columns selected: {selectedColumns.length} · Types:{" "}
-              {hasCategorical ? "categorical " : ""}
+              Columns selected: {selectedColumns.length} · Types: {hasCategorical ? "categorical " : ""}
               {hasNumeric ? "numeric " : ""}
             </Typography>
           </Box>
@@ -477,12 +476,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
               label={useCustomConfig ? "Preprocessing: Custom" : hasOverrides ? "Preprocessing: Live" : "Preprocessing: None"}
               sx={{ fontWeight: 800 }}
             />
-            <Chip
-              size="small"
-              label={useCustomConfig ? "Steps: custom" : `${liveStepsCount} step(s)`}
-              sx={{ fontWeight: 800 }}
-              variant="outlined"
-            />
+            <Chip size="small" label={useCustomConfig ? "Steps: custom" : `${liveStepsCount} step(s)`} sx={{ fontWeight: 800 }} variant="outlined" />
             <Button
               variant="outlined"
               color="inherit"
@@ -599,11 +593,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                     Columns
                   </Typography>
-                  <ColumnSelectionList
-                    columns={columns}
-                    selectedColumns={selectedColumns}
-                    onToggleColumn={handleToggleColumn}
-                  />
+                  <ColumnSelectionList columns={columns} selectedColumns={selectedColumns} onToggleColumn={handleToggleColumn} />
                 </FlexBox>
               </FlexBox>
             </FlexBox>

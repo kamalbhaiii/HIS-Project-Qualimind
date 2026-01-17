@@ -17,7 +17,7 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
 
   const helperText = useMemo(
     () =>
-      "Max size ~100MB. You will be able to choose columns & preprocessing steps before upload.",
+      "Max size ~10MB. You will be able to choose columns & preprocessing steps before upload.",
     []
   );
 

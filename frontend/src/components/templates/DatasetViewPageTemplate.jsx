@@ -145,20 +145,21 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
 
       {dataset && (
         <>
+          {/* STACKED layout: Meta -> Controls -> Content */}
           <FlexBox
             sx={{
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr", xl: "minmax(360px, 0.9fr) minmax(0, 2.1fr)" },
+              display: "flex",
+              flexDirection: "column",
               gap: { xs: 2, sm: 2.5 },
               mb: 3,
               width: "100%",
               maxWidth: "100%",
               minWidth: 0,
-              alignItems: "start",
+              alignItems: "stretch",
             }}
           >
-            {/* Left: metadata (sticky on wide screens) */}
-            <Box sx={{ minWidth: 0, maxWidth: "100%", position: { xl: "sticky" }, top: { xl: 16 }, alignSelf: "start" }}>
+            {/* Meta (stacked; no side placement) */}
+            <Box sx={{ minWidth: 0, maxWidth: "100%" }}>
               <DatasetMetaPanel
                 dataset={metaDataset}
                 requestedPreprocessingConfig={requestedPreprocessingConfig}
@@ -166,65 +167,65 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
               />
             </Box>
 
-            {/* Right: controls + content */}
-            <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, maxWidth: "100%" }}>
-              {/* Unified control bar */}
-              <Paper
-                elevation={0}
+            {/* Unified control bar (stacked) */}
+            <Paper
+              elevation={0}
+              sx={{
+                border: (theme) => `1px solid ${theme.palette.divider}`,
+                borderRadius: 2,
+                p: 1.5,
+                width: "100%",
+              }}
+            >
+              <FlexBox
                 sx={{
-                  border: (theme) => `1px solid ${theme.palette.divider}`,
-                  borderRadius: 2,
-                  p: 1.5,
+                  display: "flex",
+                  gap: 1.25,
+                  flexDirection: { xs: "column", md: "row" },
+                  alignItems: { xs: "stretch", md: "center" },
+                  justifyContent: "space-between",
                 }}
               >
+                <DatasetViewSectionToggle value={section} onChange={setSection} />
+
                 <FlexBox
                   sx={{
                     display: "flex",
-                    gap: 1.25,
-                    flexDirection: { xs: "column", md: "row" },
+                    gap: 1.5,
                     alignItems: { xs: "stretch", md: "center" },
-                    justifyContent: "space-between",
+                    justifyContent: "flex-end",
+                    flexWrap: "wrap",
                   }}
                 >
-                  <DatasetViewSectionToggle value={section} onChange={setSection} />
+                  {/* Show dataset mode toggle only when Preview is selected */}
+                  {section === "preview" && <DatasetViewToggle mode={mode} onChange={handleModeChange} />}
 
-                  <FlexBox
-                    sx={{
-                      display: "flex",
-                      gap: 1.5,
-                      alignItems: { xs: "stretch", md: "center" },
-                      justifyContent: "flex-end",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {/* Show dataset mode toggle only when Preview is selected */}
-                    {section === "preview" && <DatasetViewToggle mode={mode} onChange={handleModeChange} />}
-
-                    {/* Show AI toggle only when Visualize is selected */}
-                    {section === "visualize" && (
-                      <FormControlLabel
-                        sx={{ ml: 0 }}
-                        control={
-                          <Switch
-                            checked={aiInferenceEnabled}
-                            onChange={(e) => setAiInferenceEnabled(e.target.checked)}
-                          />
-                        }
-                        label="AI inference"
-                      />
-                    )}
-                  </FlexBox>
+                  {/* Show AI toggle only when Visualize is selected */}
+                  {section === "visualize" && (
+                    <FormControlLabel
+                      sx={{ ml: 0 }}
+                      control={
+                        <Switch
+                          checked={aiInferenceEnabled}
+                          onChange={(e) => setAiInferenceEnabled(e.target.checked)}
+                        />
+                      }
+                      label="AI inference"
+                    />
+                  )}
                 </FlexBox>
+              </FlexBox>
 
-                <Divider sx={{ my: 1.25 }} />
+              <Divider sx={{ my: 1.25 }} />
 
-                <Typography variant="caption" color="textSecondary">
-                  Note: For performance reasons, only the first few rows of each dataset are used in preview and charts.
-                  Correlation comes from the backend metadata when available.
-                </Typography>
-              </Paper>
+              <Typography variant="caption" color="textSecondary">
+                Note: For performance reasons, only the first few rows of each dataset are used in preview and charts.
+                Correlation comes from the backend metadata when available.
+              </Typography>
+            </Paper>
 
-              {/* Content */}
+            {/* Content (stacked) */}
+            <Box sx={{ minWidth: 0, maxWidth: "100%", width: "100%" }}>
               {section === "preview" ? (
                 <DatasetViewPanel
                   mode={mode}
@@ -257,7 +258,7 @@ const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
                   processedColumnsCount={processingSummary?.processedColumns ?? null}
                 />
               )}
-            </FlexBox>
+            </Box>
           </FlexBox>
         </>
       )}
