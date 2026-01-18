@@ -15,6 +15,21 @@ const DatasetsPageTemplate = () => {
   const navigate = useNavigate();
   const {showToast} = useToast();
 
+  const fetchDatasets = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const data = await getDatasets();
+      setDatasets(data);
+    } catch (err) {
+      setError(err.message || 'Failed to fetch datasets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   const formatBytes = (bytes) => {
     if (!Number.isFinite(bytes)) return '-';
     if (bytes === 0) return '0 B';

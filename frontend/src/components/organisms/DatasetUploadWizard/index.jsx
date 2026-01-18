@@ -491,7 +491,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
           <Collapse in={showPayloadPreview} style={{ width: "100%" }}>
             <Divider sx={{ my: 1.25 }} />
             <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5 }}>
-              <Box sx={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2, p: 1, background: "white" }}>
+              <Box sx={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2, p: 1 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                     preprocessingConfig
@@ -520,7 +520,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                 </Box>
               </Box>
 
-              <Box sx={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2, p: 1, background: "white" }}>
+              <Box sx={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2, p: 1 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                     correlationConfig
