@@ -20,7 +20,8 @@
       "@schemas/*": ["src/schemas/*"],
       "@services/*": ["src/services/*"],
       "@jobs/*": ["src/jobs/*"],
-      "@utils/*": ["src/utils/*"]
+      "@utils/*": ["src/utils/*"],
+      "@modules/*": ["src/modules/*"]
     }
   }
 }

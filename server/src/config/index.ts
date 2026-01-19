@@ -27,7 +27,14 @@ const Schema = z.object({
     clientSecret: z.string().min(1),
     redirectUri: z.string().min(1)
   }),
-  multer: z.object({ dest: z.string().min(1), save: z.string().min(1) })
+  multer: z.object({ dest: z.string().min(1), save: z.string().min(1) }),
+  openAI: z.object({
+    llmProvider: z.string().min(1),
+    apiKey: z.string().min(1),
+    model: z.string().min(1),
+    timeout: z.number(),
+    maxTokens: z.number()
+  })
 });
 
 export type AppConfig = z.infer<typeof Schema>;
@@ -42,7 +49,8 @@ const cfg = Schema.parse({
   googleAuth: config.get('googleAuth'),
   multer: config.get('multer'),
   frontend: config.get('frontend'),
-  nodemailer: config.get('nodemailer')
+  nodemailer: config.get('nodemailer'),
+  openAI: config.get('openAI')
 });
 
 export default cfg;

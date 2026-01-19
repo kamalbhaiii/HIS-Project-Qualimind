@@ -8,7 +8,7 @@ const AppRoutes = () => {
     ...routes,
 
     // redirect "/" -> "/sign-in"
-    { path: "/", element: <Navigate to="/sign-in" replace /> },
+    { path: "/", element: <Navigate to="/landing" replace /> },
 
     // redirect "/dataset-view" -> "/sign-in"
     { path: "/dataset-view", element: <Navigate to="/dataset" replace /> },

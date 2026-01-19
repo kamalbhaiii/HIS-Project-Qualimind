@@ -1,8 +1,8 @@
 {
-  "apiBaseUrl": "http://localhost:5000/api",
-  "serverUrl": "http://localhost:5000/",
+  "apiBaseUrl": "http://localhost:10000/api",
+  "serverUrl": "http://localhost:10000/",
   "featureFlags": {
     "enableUpload": true
   },
-  "serverTimeout": 10000
+  "serverTimeout": 100000
 }

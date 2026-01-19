@@ -30,12 +30,13 @@ interface CallRPreprocessParams {
   mimeType: string;
   preprocessingTasks?: string[];
   preprocessingConfig?: any;
+  correlationConfig?: any;
 }
 
 export async function callRPreprocess(
   params: CallRPreprocessParams
 ): Promise<RPreprocessResponse> {
-  const { processingJobId, datasetPath, filename, mimeType, preprocessingTasks, preprocessingConfig } = params;
+  const { processingJobId, datasetPath, filename, mimeType, preprocessingTasks, preprocessingConfig, correlationConfig } = params;
 
   const baseUrl = cfg.rService.url;
   const endpoint = cfg.rService.processEndpoint ?? '/clean?jobId=';
@@ -63,6 +64,7 @@ const payload: any = {
 
   if (preprocessingTasks?.length) payload.preprocessingTasks = preprocessingTasks;
   if (preprocessingConfig) payload.preprocessingConfig = preprocessingConfig;
+  if (correlationConfig) payload.correlationConfig = correlationConfig;
 
   if (preprocessingTasks && preprocessingTasks.length > 0) {
     payload.preprocessingTasks = preprocessingTasks;

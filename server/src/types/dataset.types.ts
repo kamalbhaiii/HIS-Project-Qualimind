@@ -17,7 +17,8 @@ export interface JobDTO {
 export interface DatasetUploadDTO {
   name?: string;
   preprocessingTasks?: string | string[];
-  preprocessingConfig?: any; // NEW
+  preprocessingConfig?: any;
+  correlationConfig?: any;
 }
 
 

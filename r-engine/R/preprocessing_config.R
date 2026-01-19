@@ -1,28 +1,41 @@
 # R/preprocessing_config.R
 # Method-aware preprocessing engine (task-method-scope)
-# Backward compatible: used only when preprocessingConfig is provided.
+# Used when preprocessingConfig is provided.
+# STRICT MODE: ONLY runs steps explicitly present in config.
+#
+# IMPORTANT (project invariant):
+# Even in strict config mode, we ALWAYS run:
+# 1) missing token normalization
+# 2) numeric type inference
+# These are preflight sanitation steps (not "tasks").
+
+# ---------- small utility ----------
+`%||%` <- function(a, b) if (!is.null(a)) a else b
 
 # ---------- helpers ----------
 
 normalize_config <- function(cfg) {
   if (is.null(cfg)) return(NULL)
+
+  # allow cfg to arrive as JSON string
+  if (is.character(cfg) && nzchar(cfg)) {
+    cfg <- jsonlite::fromJSON(cfg, simplifyVector = FALSE)
+  }
+
   if (!is.list(cfg)) stop("preprocessingConfig must be an object")
 
   steps <- cfg$steps
   if (is.null(steps)) stop("preprocessingConfig.steps must be an array")
 
   if (is.data.frame(steps)) {
-    steps <- lapply(seq_len(nrow(steps)), function(i) {
-      as.list(steps[i, , drop = FALSE])
-    })
+    steps <- lapply(seq_len(nrow(steps)), function(i) as.list(steps[i, , drop = FALSE]))
   }
-
   if (!is.list(steps)) stop("preprocessingConfig.steps must be an array")
 
-  # ensure each step is list-like and normalize keys
   norm_steps <- lapply(seq_along(steps), function(i) {
     st <- steps[[i]]
     if (!is.list(st)) stop(paste0("steps[", i, "] must be an object"))
+
     task <- tolower(trimws(as.character(st$task %||% "")))
     method <- tolower(trimws(as.character(st$method %||% "")))
     if (task == "" || method == "") stop(paste0("steps[", i, "] must include task and method"))
@@ -49,7 +62,6 @@ normalize_config <- function(cfg) {
 }
 
 detect_column_types <- function(df) {
-  # categorical: character or factor
   categorical_cols <- colnames(df)[sapply(df, function(x) is.character(x) || is.factor(x))]
   numeric_cols     <- colnames(df)[sapply(df, is.numeric)]
   list(categorical = categorical_cols, numeric = numeric_cols)
@@ -66,24 +78,167 @@ select_columns <- function(df, col_types, appliesTo) {
     if ("numeric" %in% types) selected <- c(selected, col_types$numeric)
   }
 
-  if (!is.null(cols)) {
-    selected <- c(selected, cols)
-  }
+  if (!is.null(cols)) selected <- c(selected, cols)
 
   selected <- unique(selected)
   selected <- selected[selected %in% colnames(df)]
   selected
 }
 
+# ---------- helpers: keep categoricals for UI (Category Drift) ----------
+
+snapshot_categorical_columns <- function(df, cols) {
+  cols <- intersect(as.character(cols %||% character()), colnames(df))
+  if (!length(cols)) return(NULL)
+
+  keep <- cols[sapply(cols, function(c) is.character(df[[c]]) || is.factor(df[[c]]))]
+  if (!length(keep)) return(NULL)
+
+  out <- df[, keep, drop = FALSE]
+  for (c in colnames(out)) out[[c]] <- as.character(out[[c]])
+  out
+}
+
+merge_categorical_snapshots <- function(a, b) {
+  if (is.null(a) || !ncol(a)) return(b)
+  if (is.null(b) || !ncol(b)) return(a)
+
+  # add only new columns from b
+  new_cols <- setdiff(colnames(b), colnames(a))
+  if (!length(new_cols)) return(a)
+
+  cbind(a, b[, new_cols, drop = FALSE])
+}
+
+reattach_categorical_snapshot <- function(df, snap) {
+  if (is.null(snap) || !ncol(snap)) return(df)
+
+  # avoid name collisions (shouldn't happen, but keep safe)
+  overlap <- intersect(colnames(df), colnames(snap))
+  if (length(overlap)) df <- df[, setdiff(colnames(df), overlap), drop = FALSE]
+
+  cbind(df, snap)
+}
+
+# ---------- STRICT explicit step: missing token normalization ----------
+
+missing_token_normalization_method <- function(df, cols, actions, tokens) {
+  for (col in cols) {
+    if (is.character(df[[col]]) || is.factor(df[[col]])) {
+      v <- as.character(df[[col]])
+      v <- stringr::str_trim(v)
+      v[v %in% tokens] <- NA
+      df[[col]] <- v
+      actions[[col]] <- c(actions[[col]] %||% character(), "missing_token_normalization:standard")
+    }
+  }
+  list(df = df, actions = actions)
+}
+
+# ---------- STRICT explicit step: numeric type inference ----------
+
+numeric_type_inference_method <- function(df, cols, actions, threshold = 0.9) {
+  for (col in cols) {
+    if (!is.character(df[[col]])) next
+    v <- df[[col]]
+    non_na <- v[!is.na(v)]
+    if (length(non_na) == 0) next
+
+    numeric_like <- grepl("^-?[0-9]+(\\.[0-9]+)?$", non_na)
+    if (mean(numeric_like) > threshold) {
+      suppressWarnings(num_v <- as.numeric(non_na))
+      if (!all(is.na(num_v))) {
+        suppressWarnings(df[[col]] <- as.numeric(v))
+        actions[[col]] <- c(actions[[col]] %||% character(), "numeric_type_inference:standard")
+      }
+    }
+  }
+  list(df = df, actions = actions)
+}
+
+# ---------- ALWAYS-ON preflight (config mode invariant) ----------
+
+preflight_missing_token_normalization_all <- function(df, actions, tokens) {
+  changed_any <- FALSE
+  cols <- colnames(df)
+
+  for (col in cols) {
+    if (is.character(df[[col]]) || is.factor(df[[col]])) {
+      v0 <- as.character(df[[col]])
+      v1 <- stringr::str_trim(v0)
+
+      # mark tokens -> NA
+      v1[v1 %in% tokens] <- NA
+
+      if (!identical(v0, v1)) changed_any <- TRUE
+
+      df[[col]] <- v1
+      if (!identical(v0, v1)) {
+        actions[[col]] <- c(actions[[col]] %||% character(), "preflight:missing_token_normalization")
+      }
+    }
+  }
+
+  list(df = df, actions = actions, changed = changed_any)
+}
+
+preflight_numeric_type_inference_all <- function(df, actions, threshold = 0.9) {
+  changed_any <- FALSE
+  cols <- colnames(df)
+
+  for (col in cols) {
+    if (!is.character(df[[col]])) next
+
+    v <- df[[col]]
+    non_na <- v[!is.na(v)]
+    if (length(non_na) == 0) next
+
+    numeric_like <- grepl("^-?[0-9]+(\\.[0-9]+)?$", non_na)
+    if (mean(numeric_like) > threshold) {
+      suppressWarnings(num_v <- as.numeric(non_na))
+      if (!all(is.na(num_v))) {
+        suppressWarnings(vn <- as.numeric(v))
+        df[[col]] <- vn
+        changed_any <- TRUE
+        actions[[col]] <- c(actions[[col]] %||% character(), "preflight:numeric_type_inference")
+      }
+    }
+  }
+
+  list(df = df, actions = actions, changed = changed_any)
+}
+
+# ---------- helper: scoped numeric coercion (STRICT) ----------
+# Only used when a numeric imputation method is explicitly requested for a column.
+coerce_numeric_column_strict <- function(x) {
+  if (is.numeric(x)) return(x)
+
+  if (is.factor(x)) x <- as.character(x)
+
+  if (is.character(x)) {
+    x <- stringr::str_trim(x)
+    # STRICT: only treat empty-string as missing unless user also runs missing_token_normalization
+    x[x == ""] <- NA
+    suppressWarnings(xn <- as.numeric(x))
+    return(xn)
+  }
+
+  x
+}
+
 # ---------- methods: missing values ----------
 
 impute_numeric_median <- function(df, cols, actions) {
   for (col in cols) {
-    v <- df[[col]]
-    if (is.numeric(v) && any(is.na(v))) {
-      med <- stats::median(v, na.rm = TRUE)
-      df[[col]][is.na(df[[col]])] <- med
+    v2 <- coerce_numeric_column_strict(df[[col]])
+
+    if (is.numeric(v2) && any(is.na(v2))) {
+      med <- stats::median(v2, na.rm = TRUE)
+      v2[is.na(v2)] <- med
+      df[[col]] <- v2
       actions[[col]] <- c(actions[[col]] %||% character(), "missing_values:numeric_median")
+    } else {
+      df[[col]] <- v2
     }
   }
   list(df = df, actions = actions)
@@ -91,11 +246,15 @@ impute_numeric_median <- function(df, cols, actions) {
 
 impute_numeric_mean <- function(df, cols, actions) {
   for (col in cols) {
-    v <- df[[col]]
-    if (is.numeric(v) && any(is.na(v))) {
-      m <- mean(v, na.rm = TRUE)
-      df[[col]][is.na(df[[col]])] <- m
+    v2 <- coerce_numeric_column_strict(df[[col]])
+
+    if (is.numeric(v2) && any(is.na(v2))) {
+      m <- mean(v2, na.rm = TRUE)
+      v2[is.na(v2)] <- m
+      df[[col]] <- v2
       actions[[col]] <- c(actions[[col]] %||% character(), "missing_values:numeric_mean")
+    } else {
+      df[[col]] <- v2
     }
   }
   list(df = df, actions = actions)
@@ -103,10 +262,14 @@ impute_numeric_mean <- function(df, cols, actions) {
 
 impute_numeric_constant <- function(df, cols, actions, value = 0) {
   for (col in cols) {
-    v <- df[[col]]
-    if (is.numeric(v) && any(is.na(v))) {
-      df[[col]][is.na(df[[col]])] <- value
+    v2 <- coerce_numeric_column_strict(df[[col]])
+
+    if (is.numeric(v2) && any(is.na(v2))) {
+      v2[is.na(v2)] <- value
+      df[[col]] <- v2
       actions[[col]] <- c(actions[[col]] %||% character(), paste0("missing_values:numeric_constant=", value))
+    } else {
+      df[[col]] <- v2
     }
   }
   list(df = df, actions = actions)
@@ -117,10 +280,7 @@ impute_categorical_mode <- function(df, cols, actions) {
     v <- df[[col]]
     if (is.character(v) || is.factor(v)) {
       vv <- as.character(v)
-      if (all(is.na(vv))) {
-        # if everything missing, do nothing here; leave to unknown method
-        next
-      }
+      if (all(is.na(vv))) next
       if (any(is.na(vv))) {
         tbl <- table(vv, useNA = "no")
         mode_val <- names(tbl)[which.max(tbl)]
@@ -192,10 +352,16 @@ clean_category_labels_method <- function(df, cols, actions) {
     v <- df[[col]]
     if (is.character(v) || is.factor(v)) {
       vv <- as.character(v)
+
       vv <- stringr::str_trim(vv)
       vv <- stringr::str_to_lower(vv)
       vv <- stringr::str_replace_all(vv, "[^a-z0-9\\s]", " ")
       vv <- stringr::str_replace_all(vv, "\\s+", "_")
+
+      # normalize underscores
+      vv <- stringr::str_replace_all(vv, "_+", "_")
+      vv <- stringr::str_replace_all(vv, "^_+|_+$", "")
+
       df[[col]] <- vv
       actions[[col]] <- c(actions[[col]] %||% character(), "label_cleaning:standard")
     }
@@ -203,7 +369,7 @@ clean_category_labels_method <- function(df, cols, actions) {
   list(df = df, actions = actions)
 }
 
-# ---------- methods: reduce cardinality / rare categories ----------
+# ---------- methods: reduce cardinality ----------
 
 reduce_cardinality_method <- function(df, cols, actions, params, rare_info_out, high_card_out) {
   high_cardinality_threshold <- params$high_cardinality_threshold %||% 50
@@ -247,7 +413,7 @@ reduce_cardinality_method <- function(df, cols, actions, params, rare_info_out, 
   )
 }
 
-# ---------- methods: encoding (reuse your logic patterns) ----------
+# ---------- methods: encoding ----------
 
 encode_categoricals_method <- function(df, cols, actions, params, encoding_stats_out, encoded_cols_out, freq_cols_out) {
   one_hot_max_levels <- params$one_hot_max_levels %||% 10
@@ -261,7 +427,6 @@ encode_categoricals_method <- function(df, cols, actions, params, encoding_stats
     if (!(is.character(v) || is.factor(v))) next
     vv <- as.character(v)
 
-    # frequency encoding always
     freq <- table(vv)
     freq_norm <- as.numeric(freq) / sum(freq)
     names(freq_norm) <- names(freq)
@@ -319,47 +484,26 @@ encode_categoricals_method <- function(df, cols, actions, params, encoding_stats
 preprocess_with_config <- function(df, config_raw) {
   cfg <- normalize_config(config_raw)
 
-  # always: missing token normalization + numeric type inference (same as your baseline)
-  missing_tokens <- c("NULL", "null", "Na", "NA", "N/A", "n/a", "", "?", "NaN", "nan")
-
-  for (col in colnames(df)) {
-    if (is.character(df[[col]]) || is.factor(df[[col]])) {
-      v <- as.character(df[[col]])
-      v <- stringr::str_trim(v)
-      v[v %in% missing_tokens] <- NA
-      df[[col]] <- v
-    }
-  }
-
-  for (col in colnames(df)) {
-    if (is.character(df[[col]])) {
-      v <- df[[col]]
-      non_na <- v[!is.na(v)]
-      if (length(non_na) > 0) {
-        numeric_like <- grepl("^-?[0-9]+(\\.[0-9]+)?$", non_na)
-        if (mean(numeric_like) > 0.9) {
-          suppressWarnings({
-            num_v <- as.numeric(non_na)
-          })
-          if (!all(is.na(num_v))) {
-            suppressWarnings({
-              vv <- as.numeric(v)
-            })
-            df[[col]] <- vv
-          }
-        }
-      }
-    }
-  }
-
-  col_types <- detect_column_types(df)
-
-  # execution logs
   executed_steps <- character()
   warnings_out <- character()
   column_actions <- list()
 
-  # stats to include in metadata
+  # ----------------------------
+  # ALWAYS-ON PREFLIGHT (INVARIANT)
+  # ----------------------------
+  tokens <- c("NULL","null","Na","NA","N/A","n/a","","?","NaN","nan")
+
+  pf1 <- preflight_missing_token_normalization_all(df, column_actions, tokens = tokens)
+  df <- pf1$df; column_actions <- pf1$actions
+  if (isTRUE(pf1$changed)) executed_steps <- c(executed_steps, "preflight:missing_token_normalization")
+
+  pf2 <- preflight_numeric_type_inference_all(df, column_actions, threshold = 0.9)
+  df <- pf2$df; column_actions <- pf2$actions
+  if (isTRUE(pf2$changed)) executed_steps <- c(executed_steps, "preflight:numeric_type_inference")
+
+  # types after preflight
+  col_types <- detect_column_types(df)
+
   scaling_stats <- list()
   encoding_stats <- list()
   encoded_columns <- character()
@@ -367,8 +511,11 @@ preprocess_with_config <- function(df, config_raw) {
   rare_category_info <- list()
   high_cardinality_columns <- character()
   parameters_out <- list()
+  categorical_snapshot <- NULL
 
-  # Apply steps in order
+  # FIX: track ONLY the columns that were actually targeted by encoding
+  encoded_source_columns <- character()
+
   for (i in seq_along(cfg$steps)) {
     st <- cfg$steps[[i]]
     task <- st$task
@@ -378,13 +525,27 @@ preprocess_with_config <- function(df, config_raw) {
 
     target_cols <- select_columns(df, col_types, appliesTo)
 
-    # If scope empty, skip gracefully
     if (length(target_cols) == 0) {
       warnings_out <- c(warnings_out, paste0("Step ", i, " skipped: no matching columns"))
       next
     }
 
-    if (task == "missing_values") {
+    if (task == "missing_token_normalization") {
+      if (method != "standard") stop("missing_token_normalization.method must be 'standard'")
+      tokens2 <- params$tokens %||% tokens
+      out <- missing_token_normalization_method(df, target_cols, column_actions, tokens = tokens2)
+      df <- out$df; column_actions <- out$actions
+      executed_steps <- c(executed_steps, "missing_token_normalization:standard")
+
+    } else if (task == "numeric_type_inference") {
+      if (method != "standard") stop("numeric_type_inference.method must be 'standard'")
+      threshold <- as.numeric(params$threshold %||% 0.9)
+      if (is.na(threshold) || threshold <= 0 || threshold > 1) threshold <- 0.9
+      out <- numeric_type_inference_method(df, target_cols, column_actions, threshold = threshold)
+      df <- out$df; column_actions <- out$actions
+      executed_steps <- c(executed_steps, "numeric_type_inference:standard")
+
+    } else if (task == "missing_values") {
       if (method == "numeric_median") {
         out <- impute_numeric_median(df, target_cols, column_actions)
         df <- out$df; column_actions <- out$actions
@@ -442,6 +603,12 @@ preprocess_with_config <- function(df, config_raw) {
 
     } else if (task == "encoding") {
       if (method == "auto") {
+        # FIX: remember which source columns were targeted by encoding
+        encoded_source_columns <- unique(c(encoded_source_columns, target_cols))
+
+        snap <- snapshot_categorical_columns(df, target_cols)
+        categorical_snapshot <- merge_categorical_snapshots(categorical_snapshot, snap)
+
         out <- encode_categoricals_method(
           df,
           target_cols,
@@ -480,47 +647,58 @@ preprocess_with_config <- function(df, config_raw) {
       stop(paste0("Unsupported task: ", task))
     }
 
-    # refresh column types if encoding dropped/replaced columns later (optional)
     col_types <- detect_column_types(df)
   }
 
-  # If encoding ran, drop original categoricals if still present and were encoded
-  # (In auto encoding method we add new columns but do not remove originals here;
-  #  to keep behavior consistent, we drop only those explicitly selected that remain categorical.)
-  # NOTE: you may choose to keep originals by design; current pipeline drops.
-  # We'll follow current pipeline approach: drop all remaining categoricals IF encoding executed.
-  if (any(grepl("^encoding:", executed_steps)) || any(executed_steps == "encoding:auto")) {
-    col_types2 <- detect_column_types(df)
-    if (length(col_types2$categorical) > 0) {
-      df <- df[, setdiff(colnames(df), col_types2$categorical), drop = FALSE]
+  # ----------------------------
+  # FIXED POST-ENCODING HANDLING
+  # ----------------------------
+  # Old behavior (bug): remove ALL categorical columns when encoding ran.
+  # New behavior: remove ONLY the original source columns that were targeted by encoding,
+  # and ONLY if they are categorical at this point. Keep all other categoricals untouched.
+  if (any(executed_steps == "encoding:auto")) {
+    drop_cols <- intersect(encoded_source_columns, colnames(df))
+    if (length(drop_cols)) {
+      drop_cols <- drop_cols[sapply(drop_cols, function(cn) {
+        is.character(df[[cn]]) || is.factor(df[[cn]])
+      })]
+      if (length(drop_cols)) {
+        df <- df[, setdiff(colnames(df), drop_cols), drop = FALSE]
+      }
     }
+
+    # Reattach categorical strings for UI features (Category Drift, etc.)
+    df <- reattach_categorical_snapshot(df, categorical_snapshot)
   }
 
-  # final metadata
   numeric_cols_final <- colnames(df)[sapply(df, is.numeric)]
+  col_types_final <- detect_column_types(df)
 
   metadata <- list(
-    preprocessing_mode       = jsonlite::unbox("config"),
-    config_version           = jsonlite::unbox(cfg$version %||% "1.0"),
-    requested_config         = cfg,
-    executed_steps           = executed_steps,
-    warnings                 = warnings_out,
-    column_actions           = column_actions,
+    preprocessing_mode        = jsonlite::unbox("config"),
+    config_version            = jsonlite::unbox(cfg$version %||% "1.0"),
+    requested_config          = cfg,
+    executed_steps            = executed_steps,
+    warnings                  = warnings_out,
+    column_actions            = column_actions,
 
-    categorical_columns      = col_types$categorical,
-    numeric_columns          = col_types$numeric,
-    numeric_columns_final    = numeric_cols_final,
+    categorical_columns       = col_types_final$categorical,
+    numeric_columns           = col_types_final$numeric,
+    numeric_columns_final     = numeric_cols_final,
 
-    encoded_columns          = encoded_columns,
-    frequency_encoded_columns= frequency_encoded_columns,
-    encoding_stats           = encoding_stats,
+    encoded_columns           = encoded_columns,
+    frequency_encoded_columns = frequency_encoded_columns,
+    encoding_stats            = encoding_stats,
 
-    scaling_stats            = scaling_stats,
+    scaling_stats             = scaling_stats,
 
-    rare_category_info       = rare_category_info,
-    high_cardinality_columns = high_cardinality_columns,
+    rare_category_info        = rare_category_info,
+    high_cardinality_columns  = high_cardinality_columns,
 
-    parameters               = parameters_out
+    parameters                = parameters_out,
+
+    # helpful for debugging / audits
+    encoded_source_columns    = encoded_source_columns
   )
 
   list(data = df, metadata = metadata)

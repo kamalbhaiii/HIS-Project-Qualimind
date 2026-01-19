@@ -6,13 +6,16 @@ store_in_redis <- function(job_id, processed_data, metadata) {
   if (is.null(redis_conn)) return(FALSE)
 
   tryCatch({
-    data_json <- jsonlite::toJSON(processed_data, na = "string")
+    # STRICT: store rows JSON with NA as null
+    data_json <- jsonlite::toJSON(processed_data, dataframe = "rows", na = "null", auto_unbox = TRUE)
     redis_conn$SET(paste0("processed:", job_id), data_json)
+
     redis_conn$SETEX(
       paste0("processed:", job_id, ":meta"),
       86400,
-      jsonlite::toJSON(metadata, auto_unbox = TRUE)
+      jsonlite::toJSON(metadata, auto_unbox = TRUE, na = "null")
     )
+
     redis_conn$SET(paste0("job:", job_id, ":status"), "completed")
     TRUE
   }, error = function(e) {
@@ -30,7 +33,6 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
   }, add = TRUE)
 
   tryCatch({
-    # ONLY summary / metadata is stored
     dbExecute(pg_conn, "
       CREATE TABLE IF NOT EXISTS dataset_processing_summary (
         job_id VARCHAR(255) PRIMARY KEY,
@@ -45,12 +47,12 @@ store_in_postgres <- function(job_id, processed_data, metadata) {
       )
     ")
 
-    metadata_json <- jsonlite::toJSON(metadata, auto_unbox = TRUE)
+    metadata_json <- jsonlite::toJSON(metadata, auto_unbox = TRUE, na = "null")
     stats_json <- jsonlite::toJSON(list(
       categorical_columns = length(metadata$categorical_columns %||% c()),
       encoded_columns     = length(metadata$encoded_columns %||% c()),
       numeric_columns     = length(metadata$numeric_columns %||% c())
-    ), auto_unbox = TRUE)
+    ), auto_unbox = TRUE, na = "null")
 
     dbExecute(pg_conn, "
       INSERT INTO dataset_processing_summary (

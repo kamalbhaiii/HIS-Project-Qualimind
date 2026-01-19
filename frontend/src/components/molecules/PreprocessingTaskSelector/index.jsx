@@ -15,7 +15,7 @@ const PreprocessingTaskSelector = ({ tasks, selectedTaskKeys, onToggleTask }) =>
   }
 
   return (
-    <FlexBox sx={{ flexDirection: 'column', gap: 1 }}>
+    <FlexBox sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       <Typography variant="body2" color="textSecondary">
         Choose one or more preprocessing operations to run on this dataset.
       </Typography>

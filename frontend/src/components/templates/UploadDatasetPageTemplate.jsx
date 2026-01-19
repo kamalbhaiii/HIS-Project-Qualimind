@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import PropTypes from 'prop-types';
+import React, { useCallback, useMemo, useState } from "react";
+import PropTypes from "prop-types";
+import { useNavigate } from "react-router-dom";
 
-import FlexBox from '../../components/atoms/FlexBox';
-import Typography from '../../components/atoms/CustomTypography';
-import DragAndDropUploadArea from '../../components/organisms/DragAndDropUploadArea';
-import DatasetUploadWizard from '../../components/organisms/DatasetUploadWizard';
-import { useToast } from '../../components/organisms/ToastProvider';
-import { useNavigate } from 'react-router-dom';
+import FlexBox from "../../components/atoms/FlexBox";
+import Typography from "../../components/atoms/CustomTypography";
+import DragAndDropUploadArea from "../../components/organisms/DragAndDropUploadArea";
+import DatasetUploadWizard from "../../components/organisms/DatasetUploadWizard";
+import { useToast } from "../../components/organisms/ToastProvider";
 
 const UploadDatasetPageTemplate = ({ onNavigate }) => {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -15,28 +15,46 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
   const { showToast } = useToast();
   const navigate = useNavigate();
 
-  const handleFilesSelected = (files) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
+  const helperText = useMemo(
+    () =>
+      "Max size ~100MB. You will be able to choose columns & preprocessing steps before upload.",
+    []
+  );
 
-    setSelectedFile(file);
-    setWizardOpen(true);
-  };
+  const handleFilesSelected = useCallback(
+    (files) => {
+      if (!files || files.length === 0) return;
+      const file = files[0];
 
-  const handleWizardClose = () => {
+      // Basic guard: avoid opening wizard for empty files
+      if (file?.size === 0) {
+        showToast("Selected file is empty.", "warning");
+        return;
+      }
+
+      setSelectedFile(file);
+      setWizardOpen(true);
+    },
+    [showToast]
+  );
+
+  const handleWizardClose = useCallback(() => {
     setWizardOpen(false);
     setSelectedFile(null);
-  };
+  }, []);
 
-  const handleUploaded = (res) => {
-    // You can decide where to go: dashboard, datasets list, or dataset-view
-    // For now, we go to dashboard as you mentioned.
-    if (onNavigate) {
-      onNavigate('dashboard');
-    } else {
-      navigate('/datasets');
-    }
-  };
+  const handleUploaded = useCallback(
+    (res) => {
+      // Decide where to go after upload
+      if (onNavigate) {
+        onNavigate("dashboard");
+      } else {
+        // default: datasets list
+        navigate("/datasets");
+      }
+    },
+    [navigate, onNavigate]
+  );
 
   return (
     <>
@@ -44,15 +62,11 @@ const UploadDatasetPageTemplate = ({ onNavigate }) => {
         Upload a new dataset
       </Typography>
       <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
-        Provide a dataset file to prepare it for qualitative and
-        quantitative preprocessing.
+        Provide a dataset file to prepare it for qualitative and quantitative preprocessing.
       </Typography>
 
       <FlexBox sx={{ maxWidth: 720 }}>
-        <DragAndDropUploadArea
-          onFilesSelected={handleFilesSelected}
-          helperText="Max size ~100MB. You will be able to choose columns & preprocessing steps before upload."
-        />
+        <DragAndDropUploadArea onFilesSelected={handleFilesSelected} helperText={helperText} />
       </FlexBox>
 
       <DatasetUploadWizard

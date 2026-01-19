@@ -1,82 +1,58 @@
-// src/components/templates/DatasetViewPageTemplate.jsx
-import React, { useMemo, useState } from "react";
+// src/pages/templates/DatasetViewPageTemplate.jsx
+import React, { useMemo, useState, useCallback } from "react";
 import PropTypes from "prop-types";
+
 import DashboardSectionHeader from "../../components/molecules/DashboardSectionHeader";
 import FlexBox from "../../components/atoms/FlexBox";
 import Typography from "../../components/atoms/CustomTypography";
+
 import DatasetViewToggle from "../../components/molecules/DatasetViewToggle";
+import DatasetViewSectionToggle from "../../components/molecules/DatasetViewSectionToggle";
+
 import DatasetViewPanel from "../../components/organisms/DatasetViewPanel";
 import DatasetMetaPanel from "../../components/organisms/DatasetMetaPanel";
+import DatasetVisualizationPanel from "../../components/organisms/DatasetVisualizationPanel";
 
-// --- helpers ---------------------------------------------------
+import { parseCsvPreview } from "../../lib/parseCsvPreview";
+import { normalizeMetadata } from "../../lib/datasetNormalization";
 
-const formatBytes = (bytes) => {
-  if (bytes === null || bytes === undefined) return "-";
-  if (Number.isNaN(bytes)) return "-";
-  if (bytes === 0) return "0 Bytes";
+import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
+import Paper from "@mui/material/Paper";
+import Divider from "@mui/material/Divider";
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Skeleton from "@mui/material/Skeleton";
+import Chip from "@mui/material/Chip";
 
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const value = bytes / Math.pow(1024, i);
-  return `${value.toFixed(1)} ${sizes[i]}`;
-};
+const DatasetViewPageTemplate = ({ dataset, loading, error }) => {
+  // SECTION: preview | visualize
+  const [section, setSection] = useState("preview");
 
-const formatDateTime = (iso) => {
-  if (!iso) return "-";
-  const date = new Date(iso);
-  return date.toLocaleString();
-};
+  // PREVIEW MODE: original | processed
+  const [mode, setMode] = useState("original");
 
-/**
- * Very simple CSV preview parser.
- * NOTE: If you need full RFC support (quoted commas, etc),
- * swap this out for PapaParse or a similar library.
- */
-const parseCsvPreview = (csvString, maxRows = 100) => {
-  if (!csvString) return { columns: [], rows: [] };
+  // PREVIEW FORMAT: table | csv | json
+  const [viewFormat, setViewFormat] = useState("table");
 
-  const lines = csvString.trim().split(/\r?\n/);
-  if (!lines.length) return { columns: [], rows: [] };
-
-  const columns = lines[0].split(",").map((c) => c.trim());
-  const rows = lines
-    .slice(1, 1 + maxRows)
-    .filter((l) => l.trim().length > 0)
-    .map((line) => {
-      const values = line.split(",");
-      const row = {};
-      columns.forEach((col, idx) => {
-        row[col] = values[idx] ?? "";
-      });
-      return row;
-    });
-
-  return { columns, rows };
-};
-
-const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
-  const [mode, setMode] = useState("original"); // original | processed
-  const [viewFormat, setViewFormat] = useState("table"); // table | csv | json
+  // Optional AI inference toggle (default OFF)
+  const [aiInferenceEnabled, setAiInferenceEnabled] = useState(false);
 
   const jobStatus = dataset?.job?.status || "PENDING";
+  const isProcessing = jobStatus === "PENDING" || jobStatus === "RUNNING";
+
+  const processingSummary = dataset?.processingSummary || {};
+
+  const metadataNormalized = useMemo(() => {
+    return normalizeMetadata(processingSummary?.metadata || {});
+  }, [processingSummary?.metadata]);
 
   const metaDataset = useMemo(() => {
     if (!dataset) return null;
 
-    const processingSummary = dataset.processingSummary || {};
-    const metadata = processingSummary.metadata || {};
+    const numericCount = metadataNormalized.numeric_columns.length;
+    const categoricalCount = metadataNormalized.categorical_columns.length;
 
-    const numericCols = Array.isArray(metadata.numeric_columns)
-      ? metadata.numeric_columns
-      : [];
-    const categoricalCols = Array.isArray(metadata.categorical_columns)
-      ? metadata.categorical_columns
-      : [];
-
-    const numericCount = numericCols.length;
-    const categoricalCount = categoricalCols.length;
-
-    // Ensure correct operator precedence and null safety:
     const totalColumns =
       typeof numericCount === "number" && typeof categoricalCount === "number"
         ? numericCount + categoricalCount
@@ -85,20 +61,20 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
     return {
       id: dataset.id,
       name: dataset.originalName || dataset.name,
-      size: formatBytes(dataset.sizeBytes),
-      uploadedAt: formatDateTime(dataset.createdAt),
+      size: dataset.sizeBytes !== null && dataset.sizeBytes !== undefined ? dataset.sizeBytes : null,
+      uploadedAt: dataset.createdAt,
       totalRows: processingSummary.processedRows ?? null,
+
       preprocessingTasks: dataset.job?.preprocessingTasks || [],
+
       categoricalColumns: categoricalCount,
       numericColumns: numericCount,
       totalColumns,
       lastJobStatus: dataset.job?.status || "PENDING",
       lastJobId: dataset.job?.id,
-      lastProcessedAt: dataset.job?.completedAt
-        ? formatDateTime(dataset.job.completedAt)
-        : null,
+      lastProcessedAt: dataset.job?.completedAt || null,
     };
-  }, [dataset]);
+  }, [dataset, metadataNormalized, processingSummary.processedRows]);
 
   const originalCsv = dataset?.rawData || "";
   const processedCsv = dataset?.processedData || "";
@@ -113,100 +89,176 @@ const DatasetViewPageTemplate = ({ dataset, loading, error, onNavigate }) => {
     [processedCsv]
   );
 
-  const handleModeChange = (newMode) => {
-    setMode(newMode);
-    // Optional UX improvement: keep current viewFormat, or reset:
-    // setViewFormat("table");
-  };
+  const handleModeChange = useCallback((newMode) => setMode(newMode), []);
+
+  // Resolve requested config source robustly:
+  const requestedPreprocessingConfig =
+    dataset?.job?.preprocessingConfig ||
+    processingSummary?.metadata?.requested_config ||
+    dataset?.job?.preprocessingConfig ||
+    null;
+
+  const executedSteps = metadataNormalized?.executed_steps || [];
+
+  const headerRight = useMemo(() => {
+    const name = dataset?.originalName || dataset?.name || "Dataset";
+    return (
+      <FlexBox sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+        <Chip size="small" label={name} variant="outlined" />
+        <Chip size="small" label={`Job: ${jobStatus}`} color={isProcessing ? "warning" : "default"} />
+        {processingSummary?.processedRows != null && (
+          <Chip size="small" label={`Rows: ${processingSummary.processedRows}`} />
+        )}
+        {processingSummary?.processedColumns != null && (
+          <Chip size="small" label={`Cols: ${processingSummary.processedColumns}`} />
+        )}
+      </FlexBox>
+    );
+  }, [dataset, jobStatus, isProcessing, processingSummary?.processedRows, processingSummary?.processedColumns]);
 
   return (
     <>
       <DashboardSectionHeader
         title="Dataset view"
-        subtitle="Inspect your original dataset and the preprocessed output."
+        subtitle="Inspect your original dataset, the preprocessed output, and analytical insights."
+        rightSlot={headerRight}
       />
 
       {loading && (
-        <Typography variant="body2" sx={{ mb: 2 }}>
-          Loading dataset...
-        </Typography>
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Skeleton variant="text" height={28} width="40%" />
+          <Skeleton variant="rounded" height={120} sx={{ mt: 1 }} />
+        </Paper>
       )}
 
       {error && !loading && (
-        <Typography variant="body2" color="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           {error}
-        </Typography>
+        </Alert>
       )}
 
       {!loading && !dataset && !error && (
-        <Typography variant="body2" sx={{ mb: 2 }}>
+        <Alert severity="info" sx={{ mb: 2 }}>
           No dataset found.
-        </Typography>
+        </Alert>
       )}
 
       {dataset && (
         <>
           <FlexBox
             sx={{
-              // Responsive layout container
               display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                lg: "minmax(320px, 1.1fr) minmax(0, 2fr)",
-              },
+              gridTemplateColumns: { xs: "1fr", xl: "minmax(360px, 0.9fr) minmax(0, 2.1fr)" },
               gap: { xs: 2, sm: 2.5 },
               mb: 3,
-
-              // Prevent page-level overflow from children
               width: "100%",
               maxWidth: "100%",
               minWidth: 0,
               alignItems: "start",
             }}
           >
-            {/* Left column: metadata */}
-            <FlexBox
-              sx={{
-                minWidth: 0,
-                maxWidth: "100%",
-              }}
-            >
-              <DatasetMetaPanel dataset={metaDataset} />
-            </FlexBox>
-
-            {/* Right column: toggle + view panel */}
-            <FlexBox
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-                minWidth: 0,
-                maxWidth: "100%",
-              }}
-            >
-              <DatasetViewToggle mode={mode} onChange={handleModeChange} />
-
-              <DatasetViewPanel
-                mode={mode}
-                jobStatus={jobStatus}
-                jobErrorMessage={dataset?.job?.errorMessage || ""}
-                datasetName={dataset.originalName || dataset.name}
-                viewFormat={viewFormat}
-                onViewFormatChange={setViewFormat}
-                originalCsv={originalCsv}
-                originalColumns={originalColumns}
-                originalRows={originalRows}
-                processedCsv={processedCsv}
-                processedColumns={processedColumns}
-                processedRows={processedRows}
+            {/* Left: metadata (sticky on wide screens) */}
+            <Box sx={{ minWidth: 0, maxWidth: "100%", position: { xl: "sticky" }, top: { xl: 16 }, alignSelf: "start" }}>
+              <DatasetMetaPanel
+                dataset={metaDataset}
+                requestedPreprocessingConfig={requestedPreprocessingConfig}
+                executedSteps={executedSteps}
               />
+            </Box>
+
+            {/* Right: controls + content */}
+            <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, maxWidth: "100%" }}>
+              {/* Unified control bar */}
+              <Paper
+                elevation={0}
+                sx={{
+                  border: (theme) => `1px solid ${theme.palette.divider}`,
+                  borderRadius: 2,
+                  p: 1.5,
+                }}
+              >
+                <FlexBox
+                  sx={{
+                    display: "flex",
+                    gap: 1.25,
+                    flexDirection: { xs: "column", md: "row" },
+                    alignItems: { xs: "stretch", md: "center" },
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <DatasetViewSectionToggle value={section} onChange={setSection} />
+
+                  <FlexBox
+                    sx={{
+                      display: "flex",
+                      gap: 1.5,
+                      alignItems: { xs: "stretch", md: "center" },
+                      justifyContent: "flex-end",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {/* Show dataset mode toggle only when Preview is selected */}
+                    {section === "preview" && <DatasetViewToggle mode={mode} onChange={handleModeChange} />}
+
+                    {/* Show AI toggle only when Visualize is selected */}
+                    {section === "visualize" && (
+                      <FormControlLabel
+                        sx={{ ml: 0 }}
+                        control={
+                          <Switch
+                            checked={aiInferenceEnabled}
+                            onChange={(e) => setAiInferenceEnabled(e.target.checked)}
+                          />
+                        }
+                        label="AI inference"
+                      />
+                    )}
+                  </FlexBox>
+                </FlexBox>
+
+                <Divider sx={{ my: 1.25 }} />
+
+                <Typography variant="caption" color="textSecondary">
+                  Note: For performance reasons, only the first few rows of each dataset are used in preview and charts.
+                  Correlation comes from the backend metadata when available.
+                </Typography>
+              </Paper>
+
+              {/* Content */}
+              {section === "preview" ? (
+                <DatasetViewPanel
+                  mode={mode}
+                  jobStatus={jobStatus}
+                  jobErrorMessage={dataset?.job?.errorMessage || ""}
+                  datasetName={dataset.originalName || dataset.name}
+                  viewFormat={viewFormat}
+                  onViewFormatChange={setViewFormat}
+                  originalCsv={originalCsv}
+                  originalColumns={originalColumns}
+                  originalRows={originalRows}
+                  processedCsv={processedCsv}
+                  processedColumns={processedColumns}
+                  processedRows={processedRows}
+                />
+              ) : (
+                <DatasetVisualizationPanel
+                  loading={loading}
+                  jobRunning={isProcessing}
+                  originalRows={originalRows}
+                  processedRows={processedRows}
+                  metadata={metadataNormalized}
+                  aiInferenceEnabled={aiInferenceEnabled}
+                  datasetId={dataset?.id}
+                  jobId={dataset?.job?.id}
+                  filename={dataset?.originalName || dataset?.name}
+                  rawData={dataset?.rawData || ""}
+                  processedData={dataset?.processedData || ""}
+                  processedRowsCount={processingSummary?.processedRows ?? null}
+                  processedColumnsCount={processingSummary?.processedColumns ?? null}
+                />
+              )}
             </FlexBox>
           </FlexBox>
-
-          <Typography variant="caption" color="textSecondary">
-            Note: For performance reasons, only the first few rows of each dataset
-            are displayed here.
-          </Typography>
         </>
       )}
     </>
@@ -217,7 +269,12 @@ DatasetViewPageTemplate.propTypes = {
   dataset: PropTypes.object,
   loading: PropTypes.bool,
   error: PropTypes.string,
-  onNavigate: PropTypes.func,
+};
+
+DatasetViewPageTemplate.defaultProps = {
+  dataset: null,
+  loading: false,
+  error: null,
 };
 
 export default DatasetViewPageTemplate;

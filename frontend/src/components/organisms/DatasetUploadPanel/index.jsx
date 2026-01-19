@@ -14,7 +14,7 @@ const DatasetUploadPanel = () => {
   const isSmDown = useMediaQuery(theme.breakpoints.down('sm'));
 
   const handleGoToUploadPage = () => {
-    navigate('/upload-dataset');
+    navigate('/dataset-upload');
   };
 
   return (

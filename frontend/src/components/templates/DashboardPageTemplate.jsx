@@ -111,7 +111,7 @@ const DashboardPageTemplate = ({ onNavigate }) => {
   // --- Quick actions --------------------------------------------------
 
   const handleUploadDataset = () => {
-    navigate('/upload-dataset');
+    navigate('/dataset-upload');
   };
 
   const handleViewJobs = () => {

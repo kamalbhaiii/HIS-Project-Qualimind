@@ -7,7 +7,7 @@ import PropTypes from 'prop-types';
 const FooterLinks = ({ onForgotPassword, onSignUp }) => {
   return (
     <Box
-      sx={{ display: 'flex', justifyContent: 'space-between', px: 1, mb: 1 }}
+      sx={{ display: 'flex', justifyContent: 'space-between', px: 1, mt: 2 }}
       aria-label="Additional authentication links"
     >
       <LinkText onClick={onForgotPassword} href="#" variant="body2" color="textSecondary">

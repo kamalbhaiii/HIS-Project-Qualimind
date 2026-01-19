@@ -53,7 +53,7 @@ const SignInForm = ({ onSubmit, loading }) => {
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
+    <Box component="form" onSubmit={handleSubmit} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <InputFieldWithLabel
         label="Email"
         placeholder="you@example.com"
@@ -63,14 +63,12 @@ const SignInForm = ({ onSubmit, loading }) => {
         helperText={errors.email}
         type="email"
         required
-        icon={<Icon icon={faMessage} size='sm'/>}
         name="email"
         id="email"
         autoComplete="email"
         onBlur={handleBlur('email')}
         disabled={loading}
       />
-      <Box mt={2}>
         <InputFieldWithLabel
           label="Password"
           placeholder="Enter your password"
@@ -80,14 +78,12 @@ const SignInForm = ({ onSubmit, loading }) => {
           helperText={errors.password}
           type="password"
           required
-          icon={<Icon icon={faLock} size='sm' />}
           name="password"
           id="password"
           autoComplete="current-password"
           onBlur={handleBlur('password')}
           disabled={loading}
         />
-      </Box>
       <Button
         type="submit"
         fullWidth
