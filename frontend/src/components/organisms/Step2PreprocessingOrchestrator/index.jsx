@@ -17,12 +17,12 @@ import { suggestPreprocessing } from "../../../services/modules/preprocessingSug
 
 function isNumericType(t) {
   const s = String(t || "").toLowerCase();
-  return s === "numeric" || s === "number";
+  return s === "numeric" || s === "number" || s === "integer" || s === "float" || s === "decimal";
 }
 
 function isCategoricalType(t) {
   const s = String(t || "").toLowerCase();
-  return s === "categorical" || s === "factor" || s === "character" || s === "string";
+  return s === "categorical" || s === "factor" || s === "character" || s === "string" || s === "object" || s === "boolean" || s === "bool";
 }
 
 function prettyType(t) {
@@ -37,6 +37,44 @@ function kindFromType(t) {
   return "unk";
 }
 
+/* --------------------------- Data Analysis Helpers --------------------------- */
+
+/**
+ * Analyzes column data to determine if type conversion is valid.
+ * This makes the tool "smart" — allowing Cat->Num only if data is actually numeric.
+ */
+function analyzeTypeConvertibility(col, currentType, rows) {
+  if (!rows || rows.length === 0) return { canSwitch: true, targetType: isNumericType(currentType) ? "categorical" : "numeric" }; // Fallback
+
+  const isCurrentNum = isNumericType(currentType);
+  
+  // Check a sample of non-null values
+  const sample = rows
+    .map(r => r[col])
+    .filter(v => v !== null && v !== undefined && String(v).trim() !== "")
+    .slice(0, 50);
+
+  if (sample.length === 0) return { canSwitch: true, targetType: isCurrentNum ? "categorical" : "numeric" }; // Empty column, allow anything
+
+  // Check if data looks numeric (parseable numbers)
+  const numericCount = sample.filter(v => !isNaN(Number(v))).length;
+  const isLikeNumeric = (numericCount / sample.length) > 0.8; // 80% threshold
+
+  if (isCurrentNum) {
+    // Can always switch Numeric -> Categorical
+    return { canSwitch: true, targetType: "categorical" };
+  } else {
+    // Categorical -> Numeric? Only if it looks like a number
+    return { canSwitch: isLikeNumeric, targetType: "numeric" };
+  }
+}
+
+function getSampleValue(col, rows) {
+  if (!rows || !rows.length) return "";
+  const val = rows.find(r => r[col] !== null && r[col] !== undefined)?.[col];
+  return val !== undefined ? String(val) : "";
+}
+
 /* --------------------------- small helpers --------------------------- */
 
 function uniq(arr) {
@@ -48,11 +86,7 @@ function isPlainObject(x) {
 }
 
 /**
- * Parse ranges like:
- * "1-5" -> [1,2,3,4,5]
- * "1-5, 8, 10-12" -> ...
- * "3" -> [3]
- * Invalid tokens are ignored.
+ * Parse ranges like: "1-5, 8, 10-12"
  */
 function parseNumberRanges(text) {
   const raw = String(text || "").trim();
@@ -95,12 +129,13 @@ function PillToggle({ label, active, onClick, disabled }) {
         border: "1px solid rgba(0,0,0,0.10)",
         background: disabled ? "rgba(0,0,0,0.04)" : active ? "rgba(25,118,210,0.10)" : "white",
         color: disabled ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.85)",
-        padding: "8px 10px",
+        padding: "8px 12px",
         borderRadius: 999,
         cursor: disabled ? "not-allowed" : "pointer",
         fontSize: 12,
         fontWeight: 600,
         userSelect: "none",
+        transition: "all 0.2s ease",
       }}
     >
       {label}
@@ -114,7 +149,7 @@ function SegmentedViewToggle({ value, onChange }) {
       style={{
         display: "inline-flex",
         border: "1px solid rgba(0,0,0,0.10)",
-        borderRadius: 999,
+        borderRadius: 8,
         overflow: "hidden",
         background: "white",
       }}
@@ -124,78 +159,89 @@ function SegmentedViewToggle({ value, onChange }) {
         onClick={() => onChange("grouped")}
         style={{
           border: "none",
-          padding: "8px 10px",
+          padding: "8px 12px",
           fontSize: 12,
-          fontWeight: 800,
+          fontWeight: 700,
           cursor: "pointer",
           background: value === "grouped" ? "rgba(25,118,210,0.10)" : "transparent",
-          color: "rgba(0,0,0,0.85)",
+          color: value === "grouped" ? "rgba(25,118,210,1)" : "rgba(0,0,0,0.7)",
+          transition: "background 0.2s",
         }}
       >
-        Grouped
+        Grouped by Type
       </button>
-      <div style={{ width: 1, background: "rgba(0,0,0,0.08)" }} />
+      <div style={{ width: 1, background: "rgba(0,0,0,0.1)" }} />
       <button
         type="button"
         onClick={() => onChange("ordered")}
         style={{
           border: "none",
-          padding: "8px 10px",
+          padding: "8px 12px",
           fontSize: 12,
-          fontWeight: 800,
+          fontWeight: 700,
           cursor: "pointer",
           background: value === "ordered" ? "rgba(25,118,210,0.10)" : "transparent",
-          color: "rgba(0,0,0,0.85)",
+          color: value === "ordered" ? "rgba(25,118,210,1)" : "rgba(0,0,0,0.7)",
+          transition: "background 0.2s",
         }}
       >
-        In dataset order
+        Dataset Order
       </button>
     </div>
   );
 }
 
-// Modified Badge: accepts onClick to support toggling types
-function Badge({ text, kind, onClick }) {
-  const bg =
-    kind === "cat"
+// Badge: Smart toggle with analysis
+function Badge({ text, kind, onClick, disabled }) {
+  const isCat = kind === "cat";
+  const isNum = kind === "num";
+  
+  const bg = isCat
       ? "rgba(46,125,50,0.10)"
-      : kind === "num"
+      : isNum
       ? "rgba(156,39,176,0.10)"
       : "rgba(0,0,0,0.06)";
-  const fg =
-    kind === "cat"
+  
+  const fg = isCat
       ? "rgba(46,125,50,0.90)"
-      : kind === "num"
+      : isNum
       ? "rgba(156,39,176,0.90)"
       : "rgba(0,0,0,0.65)";
   
+  const canClick = onClick && !disabled;
+
   return (
     <span
       onClick={(e) => {
         e.stopPropagation();
-        onClick();
+        if(canClick) onClick();
       }}
-      title="Click to toggle data type"
+      title={disabled ? "Conversion not compatible with data" : "Click to toggle type"}
       style={{
         padding: "4px 10px",
-        borderRadius: 999,
+        borderRadius: 6,
         background: bg,
         color: fg,
         fontSize: 11,
-        fontWeight: 800,
+        fontWeight: 700,
         whiteSpace: "nowrap",
-        cursor: "pointer",
+        cursor: canClick ? "pointer" : "default",
         border: `1px solid ${fg.replace('0.90', '0.20')}`,
         display: "flex",
         alignItems: "center",
-        gap: 4,
+        gap: 6,
+        opacity: disabled ? 0.6 : 1,
         transition: "all 0.2s"
       }}
-      onMouseOver={(e) => (e.currentTarget.style.filter = "brightness(0.95)")}
-      onMouseOut={(e) => (e.currentTarget.style.filter = "none")}
+      onMouseOver={(e) => {
+        if(canClick) e.currentTarget.style.filter = "brightness(0.95)";
+      }}
+      onMouseOut={(e) => {
+        if(canClick) e.currentTarget.style.filter = "none";
+      }}
     >
       {text}
-      <span style={{ fontSize: 10, opacity: 0.6 }}>⇄</span>
+      {canClick && <span style={{ fontSize: 10, opacity: 0.6 }}>⇄</span>}
     </span>
   );
 }
@@ -204,13 +250,14 @@ function Chip({ text }) {
   return (
     <span
       style={{
-        padding: "6px 10px",
-        borderRadius: 999,
-        background: "rgba(0,0,0,0.06)",
-        color: "rgba(0,0,0,0.8)",
-        fontSize: 12,
+        padding: "4px 8px",
+        borderRadius: 4,
+        background: "rgba(0,0,0,0.04)",
+        color: "rgba(0,0,0,0.75)",
+        fontSize: 11,
         fontWeight: 600,
         whiteSpace: "nowrap",
+        border: "1px solid rgba(0,0,0,0.05)"
       }}
     >
       {text}
@@ -218,15 +265,59 @@ function Chip({ text }) {
   );
 }
 
+// New Component: Tabular snapshot of selected columns
+function SelectedColumnsTable({ selectedIndices, indexToCol, allTypes, rows }) {
+  if (!selectedIndices || selectedIndices.length === 0) {
+    return (
+      <div style={{ marginTop: 12, padding: 12, background: "rgba(0,0,0,0.02)", borderRadius: 6, textAlign: "center" }}>
+        <Typography variant="caption" color="textSecondary">No columns selected in this range.</Typography>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 12, border: "1px solid rgba(0,0,0,0.08)", borderRadius: 6, background: "white", overflow: "hidden" }}>
+      <div style={{ padding: "8px 12px", background: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 8 }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, flex: "0 0 40px" }}>Idx</Typography>
+        <Typography variant="caption" sx={{ fontWeight: 700, flex: 1 }}>Column Name</Typography>
+        <Typography variant="caption" sx={{ fontWeight: 700, flex: "0 0 80px" }}>Type</Typography>
+        <Typography variant="caption" sx={{ fontWeight: 700, flex: 1, textAlign: "right" }}>Sample</Typography>
+      </div>
+      <div style={{ maxHeight: 180, overflowY: "auto" }}>
+        {selectedIndices.map(idx => {
+          const colName = indexToCol[idx];
+          if(!colName) return null;
+          const type = allTypes[colName];
+          const pretty = prettyType(type);
+          const sample = getSampleValue(colName, rows);
+
+          return (
+            <div key={idx} style={{ display: "flex", gap: 8, padding: "6px 12px", borderBottom: "1px solid rgba(0,0,0,0.04)", alignItems: "center" }}>
+              <Typography variant="caption" color="textSecondary" sx={{ flex: "0 0 40px", fontFamily: "monospace" }}>{idx}</Typography>
+              <Typography variant="body2" sx={{ flex: 1, fontWeight: 600, fontSize: 12 }}>{colName}</Typography>
+              <div style={{ flex: "0 0 80px" }}>
+                 <Badge text={pretty} kind={kindFromType(type)} />
+              </div>
+              <Typography variant="caption" color="textSecondary" sx={{ flex: 1, textAlign: "right", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {sample || <span style={{opacity: 0.5}}>(empty)</span>}
+              </Typography>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------ mapping overrides -> labels ------------------------ */
 
 const LABELS = {
-  label_cleaning: "Clean & standardize labels",
-  missing_cat: "Handle missing values (categorical)",
-  missing_num: "Impute missing values (numeric)",
-  reduce_cardinality: "Reduce rare / high-cardinality",
-  encoding: "Encode categorical variables",
-  scaling: "Scale numeric features",
+  label_cleaning: "Clean Labels",
+  missing_cat: "Impute (Cat)",
+  missing_num: "Impute (Num)",
+  reduce_cardinality: "Reduce Card.",
+  encoding: "Encoding",
+  scaling: "Scaling",
 };
 
 function summarizeOverridesForColumn(colOverride) {
@@ -466,6 +557,7 @@ function configToBulkState({ config, allColumns, effectiveColumnTypes }) {
 export default function Step2PreprocessingOrchestrator({
   columns,
   columnTypes, // raw types from backend
+  onTypeChange,
   previewRows,
   filename,
 
@@ -487,14 +579,8 @@ export default function Step2PreprocessingOrchestrator({
 }) {
   const [mode, setMode] = useState("bulk");
 
-  // NEW: Local type overrides (Numeric <-> Categorical toggle)
-  const [localTypes, setLocalTypes] = useState({});
-
-  // Merge raw types with local overrides
-  const effectiveColumnTypes = useMemo(() => {
-    if (!localTypes || Object.keys(localTypes).length === 0) return columnTypes;
-    return { ...columnTypes, ...localTypes };
-  }, [columnTypes, localTypes]);
+  // Source of truth for types
+  const effectiveColumnTypes = columnTypes;
 
   const handleModeChange = useCallback((arg1, arg2) => {
     const next =
@@ -551,7 +637,7 @@ export default function Step2PreprocessingOrchestrator({
 
   const orderedColumns = useMemo(() => filteredColumns || [], [filteredColumns]);
 
-  // Index maps
+  // Index maps (1-based for UX)
   const catIndexToCol = useMemo(() => {
     const map = {};
     (categoricalColumns || []).forEach((c, idx) => { map[idx + 1] = c; });
@@ -602,17 +688,24 @@ export default function Step2PreprocessingOrchestrator({
     [setOverrides]
   );
 
-  // NEW: Handle toggle column type (Numeric <-> Categorical)
+  // NEW: Robust Type Toggling Logic
   const handleToggleColumnType = useCallback((col) => {
-    setLocalTypes((prev) => {
-      const current = prev[col] || columnTypes[col];
-      // Simple toggle logic
-      const next = isNumericType(current) ? "Categorical" : "Numeric";
-      return { ...prev, [col]: next };
-    });
-    // Clear overrides because they might not be valid for the new type
+    const currentType = effectiveColumnTypes[col];
+    const { canSwitch, targetType } = analyzeTypeConvertibility(col, currentType, previewRows);
+
+    if (!canSwitch) {
+      console.warn(`Cannot convert column ${col} to ${targetType} based on data analysis.`);
+      return; 
+    }
+
+    if (onTypeChange) {
+      // Pass the explicit target type to ensure correctness
+      onTypeChange(col, targetType); 
+    }
+    
+    // Clear incompatible configurations
     clearOverridesForColumn(col);
-  }, [columnTypes, clearOverridesForColumn]);
+  }, [onTypeChange, clearOverridesForColumn, effectiveColumnTypes, previewRows]);
 
   /* --------------------- NEW: Sync Custom Config -> Bulk Selection --------------------- */
 
@@ -687,6 +780,12 @@ export default function Step2PreprocessingOrchestrator({
   const [numRangeHint, setNumRangeHint] = useState(null);
   const [unkRangeHint, setUnkRangeHint] = useState(null);
   const [ordRangeHint, setOrdRangeHint] = useState(null);
+
+  // Parse input ranges to actual indices
+  const catSelectedIndices = useMemo(() => parseNumberRanges(catRange), [catRange]);
+  const numSelectedIndices = useMemo(() => parseNumberRanges(numRange), [numRange]);
+  const unkSelectedIndices = useMemo(() => parseNumberRanges(unkRange), [unkRange]);
+  const ordSelectedIndices = useMemo(() => parseNumberRanges(ordRange), [ordRange]);
 
   const validateRange = useCallback(({ rangeText, indexToCol }) => {
     const nums = parseNumberRanges(rangeText);
@@ -1016,6 +1115,9 @@ export default function Step2PreprocessingOrchestrator({
 
       const kind = listKind || kindFromType(t);
 
+      // Check convertibility for tooltips/disabled state
+      const { canSwitch } = analyzeTypeConvertibility(col, t, previewRows);
+
       return (
         <div
           key={col}
@@ -1027,60 +1129,62 @@ export default function Step2PreprocessingOrchestrator({
           }}
           style={{
             border: "1px solid rgba(0,0,0,0.10)",
-            borderRadius: 12,
-            padding: 12,
+            borderRadius: 8,
+            padding: "10px 14px",
             cursor: "pointer",
             outline: "none",
             background: selected ? "rgba(25,118,210,0.08)" : "white",
-            boxShadow: selected ? "0 0 0 2px rgba(25,118,210,0.15) inset" : "none",
+            boxShadow: selected ? "0 0 0 2px rgba(25,118,210,0.2) inset" : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 10,
+            gap: 12,
+            transition: "all 0.15s ease-in-out"
           }}
         >
-          <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.25, minWidth: 0 }}>
-            <Typography variant="body2" sx={{ fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis" }}>
-              <span style={{ opacity: 0.75, marginRight: 8 }}>{`${index}.`}</span>
+          <FlexBox sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ opacity: 0.5, marginRight: 10, fontFamily: 'monospace' }}>{`${index}.`}</span>
               {col}
             </Typography>
-            <Typography variant="caption" color="textSecondary">
-              {configured ? "Configured" : "Not configured"}
+            <Typography variant="caption" color="textSecondary" sx={{ fontSize: 10 }}>
+              {configured ? "● Configured" : "○ Not configured"}
             </Typography>
           </FlexBox>
 
-          <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1 }} onClick={(e) => e.stopPropagation()}>
-             {/* NEW: Clickable badge to toggle type */}
+          <FlexBox sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+             {/* Robust clickable badge */}
             <Badge 
               text={prettyType(t)} 
               kind={kind} 
               onClick={() => handleToggleColumnType(col)} 
-              title="Click to toggle type (Numeric <-> Categorical)"
+              disabled={!canSwitch}
             />
           </FlexBox>
         </div>
       );
     },
-    [effectiveColumnTypes, overrides, selectedCols, toggleSelected, handleToggleColumnType]
+    [effectiveColumnTypes, overrides, selectedCols, toggleSelected, handleToggleColumnType, previewRows]
   );
 
   const SelectionRangeBar = useCallback(
-    ({ title, value, onChange, hint, onAdd, onReplace, onRemove }) => (
+    ({ title, value, onChange, hint, indexToCol, selectedIndices, onAdd, onReplace, onRemove }) => (
       <FlexBox
         sx={{
           mt: 1,
           border: "1px solid rgba(0,0,0,0.08)",
           borderRadius: 2,
-          padding: 1,
+          padding: 1.5,
           background: "rgba(0,0,0,0.015)",
         }}
       >
-        <Typography variant="caption" sx={{ fontWeight: 800 }}>
-          Select by range — {title}
-        </Typography>
+        <FlexBox sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Typography variant="caption" sx={{ fontWeight: 800 }}>
+            Select by range — {title}
+          </Typography>
+        </FlexBox>
 
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "rgba(0,0,0,0.7)" }}>Range</div>
           <input
             value={value}
             onChange={onChange}
@@ -1090,31 +1194,40 @@ export default function Step2PreprocessingOrchestrator({
             style={{
               width: "100%",
               padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(0,0,0,0.15)",
+              borderRadius: 6,
+              border: "1px solid rgba(0,0,0,0.2)",
               outline: "none",
               fontSize: 13,
+              fontFamily: "monospace",
             }}
           />
-          <div style={{ marginTop: 6, fontSize: 12, color: hint ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.35)" }}>
-            {hint || " "}
+          <div style={{ marginTop: 6, minHeight: 18, fontSize: 12, color: hint ? "rgba(211,47,47,0.8)" : "rgba(0,0,0,0.35)" }}>
+            {hint || "Enter indices to see preview below"}
           </div>
         </div>
 
-        <FlexBox sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <Button variant="outlined" color="inherit" onClick={onRemove}>
-            Remove
+        {/* NEW: Tabular snapshot of range selection */}
+        <SelectedColumnsTable 
+          selectedIndices={selectedIndices} 
+          indexToCol={indexToCol} 
+          allTypes={effectiveColumnTypes} 
+          rows={previewRows} 
+        />
+
+        <FlexBox sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Button variant="outlined" color="inherit" size="small" onClick={onRemove}>
+            Remove from selection
           </Button>
-          <Button variant="outlined" color="inherit" onClick={onReplace}>
-            Replace
+          <Button variant="outlined" color="inherit" size="small" onClick={onReplace}>
+            Replace selection
           </Button>
-          <Button variant="contained" color="primary" onClick={onAdd}>
-            Add
+          <Button variant="contained" color="primary" size="small" onClick={onAdd}>
+            Add to selection
           </Button>
         </FlexBox>
       </FlexBox>
     ),
-    []
+    [effectiveColumnTypes, previewRows]
   );
 
   const catRows = useMemo(
@@ -1158,10 +1271,10 @@ export default function Step2PreprocessingOrchestrator({
         >
           <FlexBox sx={{ flexDirection: "column", gap: 0.25 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              Column preprocessing
+              Column Preprocessing & Type Management
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Choose how columns are displayed (Grouped vs In dataset order). Ranges always refer to the visible list’s numbering.
+              Review derived column types and apply preprocessing steps in bulk.
             </Typography>
             <Typography variant="caption" color="textSecondary">
               Configured columns: {configuredCount}
@@ -1236,6 +1349,8 @@ export default function Step2PreprocessingOrchestrator({
                   value={ordRange}
                   onChange={handleOrdRangeChange}
                   hint={ordRangeHint}
+                  indexToCol={ordIndexToCol}
+                  selectedIndices={ordSelectedIndices}
                   onAdd={() => {
                     const v = validateRange({ rangeText: ordRange, indexToCol: ordIndexToCol });
                     setOrdRangeHint(v.message);
@@ -1283,6 +1398,8 @@ export default function Step2PreprocessingOrchestrator({
                   value={catRange}
                   onChange={handleCatRangeChange}
                   hint={catRangeHint}
+                  indexToCol={catIndexToCol}
+                  selectedIndices={catSelectedIndices}
                   onAdd={() => {
                     const v = validateRange({ rangeText: catRange, indexToCol: catIndexToCol });
                     setCatRangeHint(v.message);
@@ -1326,6 +1443,8 @@ export default function Step2PreprocessingOrchestrator({
                   value={numRange}
                   onChange={handleNumRangeChange}
                   hint={numRangeHint}
+                  indexToCol={numIndexToCol}
+                  selectedIndices={numSelectedIndices}
                   onAdd={() => {
                     const v = validateRange({ rangeText: numRange, indexToCol: numIndexToCol });
                     setNumRangeHint(v.message);
@@ -1371,6 +1490,8 @@ export default function Step2PreprocessingOrchestrator({
                       value={unkRange}
                       onChange={handleUnkRangeChange}
                       hint={unkRangeHint}
+                      indexToCol={unkIndexToCol}
+                      selectedIndices={unkSelectedIndices}
                       onAdd={() => {
                         const v = validateRange({ rangeText: unkRange, indexToCol: unkIndexToCol });
                         setUnkRangeHint(v.message);
@@ -1471,7 +1592,7 @@ export default function Step2PreprocessingOrchestrator({
 
             <FlexBox sx={{ mt: 1 }}>
               <Typography variant="caption" color="textSecondary">
-                After you click “Apply to selected”, the selection is cleared automatically.
+                Changes here are staged. Click "Apply to selected" to commit them.
               </Typography>
               {useCustomConfig && (
                 <Typography variant="caption" color="textSecondary">
@@ -1683,7 +1804,7 @@ export default function Step2PreprocessingOrchestrator({
 
             <FlexBox sx={{ mt: 2, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
               <Typography variant="caption" color="textSecondary">
-                Tip: After applying, you can immediately select a new range and apply different settings.
+                Tip: After applying, selection clears. Re-select to apply different rules.
               </Typography>
 
               <Button variant="contained" color="primary" onClick={applyToSelected} disabled={!selectedCols?.length}>
@@ -1714,6 +1835,7 @@ export default function Step2PreprocessingOrchestrator({
 Step2PreprocessingOrchestrator.propTypes = {
   columns: PropTypes.arrayOf(PropTypes.string).isRequired,
   columnTypes: PropTypes.object.isRequired,
+  onTypeChange: PropTypes.func.isRequired,
   previewRows: PropTypes.array,
   filename: PropTypes.string,
 

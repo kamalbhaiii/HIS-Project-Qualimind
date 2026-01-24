@@ -5,8 +5,8 @@
     "url":"http://server:10000/api"
   },
   "rateLimit": {
-    "windowMs": 60000,
-    "max": 100
+    "windowMs": 600000,
+    "max": 1000
   },
   "frontend":{
     "url": "http://localhost:9999"

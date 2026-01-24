@@ -231,6 +231,44 @@ const Step3CorrelationOrchestrator = ({ columnTypes, correlationValue, onCorrela
     [onCorrelationChange]
   );
 
+  /**
+   * CORRECTED Cleanup Effect
+   * Previously, this filtered against 'numericCols', preventing categorical columns.
+   * Now, it filters against 'allColumns' to ensure we only remove columns that
+   * literally no longer exist in the dataset (e.g. if we had a way to remove cols).
+   * * Since type conversion keeps the column name (just changes type),
+   * we do NOT want to remove it from correlation just because it became categorical.
+   * Mixed types are allowed in correlation/association.
+   */
+  useEffect(() => {
+    if (!allColumns || allColumns.length === 0) return;
+
+    // Use allColumns as the source of truth for "Existence"
+    const validSet = new Set(allColumns);
+
+    const currentAnalyses = correlationValue?.analyses || [];
+    let dirty = false;
+
+    const cleanedAnalyses = currentAnalyses.map((a) => {
+      const kept = (a.columns || []).filter((c) => validSet.has(c));
+
+      // If length changed, it means we dropped a column that no longer exists
+      if (kept.length !== (a.columns || []).length) {
+        dirty = true;
+        return { ...a, columns: kept };
+      }
+      return a;
+    });
+
+    if (dirty) {
+      const nextConfig = {
+        ...correlationValue,
+        analyses: cleanedAnalyses,
+      };
+      onCorrelationChange(normalizeCorrelationConfig(nextConfig));
+    }
+  }, [allColumns, correlationValue, onCorrelationChange]);
+
   const addAnalysis = useCallback(() => {
     const next = {
       ...localState,
