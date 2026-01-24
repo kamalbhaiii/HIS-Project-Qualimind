@@ -24,6 +24,7 @@
     "@fortawesome/react-fontawesome": "^3.1.0",
     "@mui/icons-material": "^7.3.4",
     "@mui/material": "^7.3.4",
+    "@mui/x-data-grid": "^8.26.0",
     "axios": "^1.13.1",
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.5",

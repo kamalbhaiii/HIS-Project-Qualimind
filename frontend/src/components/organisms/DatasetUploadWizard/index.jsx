@@ -31,6 +31,15 @@ import Collapse from "@mui/material/Collapse";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 
+// NEW (snapshot table)
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Paper from "@mui/material/Paper";
+
 function validatePreprocessingConfig(cfg) {
   if (!cfg) return { ok: false, message: "preprocessingConfig is missing" };
   if (cfg.version !== "1.0") return { ok: false, message: 'preprocessingConfig.version must be "1.0"' };
@@ -106,11 +115,26 @@ function safeJson(obj) {
   }
 }
 
+// NEW: small helper to check if a row is effectively empty (all values empty/whitespace/null)
+function isRowEffectivelyEmpty(rowObj) {
+  if (!rowObj || typeof rowObj !== "object") return true;
+  const vals = Object.values(rowObj);
+  if (!vals || vals.length === 0) return true;
+  return vals.every((v) => {
+    if (v === null || v === undefined) return true;
+    const s = String(v);
+    return s.trim() === "";
+  });
+}
+
 export default function DatasetUploadWizard({ open, file, onClose, onUploaded }) {
   const { showToast } = useToast();
 
   const [previewRows, setPreviewRows] = useState([]);
   const [columnTypes, setColumnTypes] = useState({});
+
+  // NEW: total rows in dataset (excluding header), after skipping empty lines
+  const [totalRows, setTotalRows] = useState(0);
 
   // Step: 0 = columns, 1 = preprocessing, 2 = correlation
   const [step, setStep] = useState(0);
@@ -165,6 +189,9 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   // UI: preview payload
   const [showPayloadPreview, setShowPayloadPreview] = useState(false);
 
+  // NEW: UI state to show/hide snapshot table
+  const [showSnapshot, setShowSnapshot] = useState(false);
+
   useEffect(() => {
     if (!file) return;
 
@@ -177,6 +204,14 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
 
     // reset wizard
     setStep(0);
+
+    // reset data-derived state
+    setPreviewRows([]);
+    setColumnTypes({});
+    setColumns([]);
+    setSelectedColumns([]);
+    setTotalRows(0);
+    setShowSnapshot(false);
 
     // IMPORTANT: Fix-1 keeps defaults stable; we do not re-set defaults here unless you want to reset them
     // If you want to reset defaults on each new file, uncomment the next line:
@@ -211,16 +246,23 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
     });
 
     const setFromCsvString = (csvString) => {
-      const parsed = Papa.parse(csvString, { header: true, preview: 200, skipEmptyLines: true });
-      const fields = parsed.meta?.fields || [];
+      // 1) preview parse (fast): rows shown in UI (up to 200)
+      const parsedPreview = Papa.parse(csvString, { header: true, preview: 200, skipEmptyLines: true });
+      const fields = parsedPreview.meta?.fields || [];
       setColumns(fields);
       setSelectedColumns(fields);
 
-      const rows = parsed.data || [];
-      setPreviewRows(rows);
+      const rowsPreview = (parsedPreview.data || []).filter((r) => !isRowEffectivelyEmpty(r));
+      setPreviewRows(rowsPreview);
 
-      const types = inferColumnTypes(rows, fields);
+      const types = inferColumnTypes(rowsPreview, fields);
       setColumnTypes(types);
+
+      // 2) full parse for accurate total row count (still in-memory string)
+      // skipEmptyLines prevents trailing blank row records from being counted. [web:1]
+      const parsedFull = Papa.parse(csvString, { header: true, skipEmptyLines: true });
+      const fullRows = (parsedFull.data || []).filter((r) => !isRowEffectivelyEmpty(r));
+      setTotalRows(fullRows.length);
     };
 
     const detectColumns = async () => {
@@ -237,6 +279,8 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
         } else {
           setColumns([]);
           setSelectedColumns([]);
+          setPreviewRows([]);
+          setTotalRows(0);
           showToast("Unsupported file format.", "warning");
         }
       } catch (error) {
@@ -244,6 +288,8 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
         console.error("Column detection failed:", error);
         setColumns([]);
         setSelectedColumns([]);
+        setPreviewRows([]);
+        setTotalRows(0);
         showToast("Failed to detect columns from file.", "error");
       }
     };
@@ -369,7 +415,7 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
       }
 
       const parsed = Papa.parse(csvString, { header: true, skipEmptyLines: true });
-      const rows = parsed.data || [];
+      const rows = (parsed.data || []).filter((r) => !isRowEffectivelyEmpty(r));
 
       const filteredRows = rows.map((row) => {
         const newRow = {};
@@ -435,6 +481,12 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
   const preprocessingPreview = resolvedForPreview.ok ? resolvedForPreview.cfgToSend : null;
   const correlationPreview = resolvedForPreview.ok ? resolvedForPreview.corrToSend : null;
 
+  // NEW: snapshot rendering params
+  const snapshotMaxRows = 100;
+  const snapshotMaxCols = selectedColumns.length
+  const snapshotRows = useMemo(() => (previewRows || []).slice(0, snapshotMaxRows), [previewRows]);
+  const snapshotCols = useMemo(() => (selectedColumns || []).slice(0, snapshotMaxCols), [selectedColumns]); // keep table readable
+
   return (
     <AppModal
       open={open}
@@ -468,6 +520,10 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
               Columns selected: {selectedColumns.length} · Types: {hasCategorical ? "categorical " : ""}
               {hasNumeric ? "numeric " : ""}
             </Typography>
+                              {/* NEW: row count */}
+                  <Typography variant="caption" color="textSecondary">
+                    Total rows detected: {totalRows}
+                  </Typography>
           </Box>
 
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
@@ -580,11 +636,27 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                     borderRadius: 2,
                     padding: 1.5,
                     background: "rgba(0,0,0,0.02)",
+                    flexDirection: "column",
+                    gap: 0.75,
                   }}
                 >
                   <Typography variant="body2" color="textSecondary">
                     Review detected columns and deselect any you want to exclude before preprocessing.
                   </Typography>
+
+                  {/* NEW: snapshot toggle */}
+                  <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 0.5 }}>
+                    <Button
+                      variant="outlined"
+                      color="inherit"
+                      size="small"
+                      onClick={() => setShowSnapshot((v) => !v)}
+                      endIcon={showSnapshot ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      disabled={!previewRows || previewRows.length === 0 || selectedColumns.length === 0}
+                    >
+                      {showSnapshot ? "Hide dataset snapshot" : "Show dataset snapshot"}
+                    </Button>
+                  </Box>
                 </FlexBox>
               </FlexBox>
 
@@ -597,6 +669,82 @@ export default function DatasetUploadWizard({ open, file, onClose, onUploaded })
                 </FlexBox>
               </FlexBox>
             </FlexBox>
+
+            {/* NEW: snapshot table (tabular) */}
+            <Collapse in={showSnapshot} style={{ width: "100%" }}>
+              <Box
+                sx={{
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 2,
+                  p: 1.5,
+                  background: "rgba(0,0,0,0.02)",
+                }}
+              >
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    Dataset snapshot
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    Showing up to {snapshotRows.length} row(s) and {snapshotCols.length} column(s) from the preview.
+                  </Typography>
+                </Box>
+
+                <Box sx={{ mt: 1 }}>
+                  <TableContainer
+                    component={Paper}
+                    elevation={0}
+                    sx={{
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      borderRadius: 2,
+                      maxHeight: 320,
+                    }}
+                  >
+                    <Table stickyHeader size="small" aria-label="dataset snapshot table">
+                      <TableHead>
+                        <TableRow>
+                          {snapshotCols.map((c) => (
+                            <TableCell key={c} sx={{ fontWeight: 800 }}>
+                              {c}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {snapshotRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={snapshotCols.length}>
+                              <Typography variant="caption" color="textSecondary">
+                                No preview rows available.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          snapshotRows.map((row, idx) => (
+                            <TableRow key={idx} hover>
+                              {snapshotCols.map((c) => (
+                                <TableCell key={c}>
+                                  <Typography variant="caption" color="textSecondary">
+                                    {row?.[c] === null || row?.[c] === undefined || String(row?.[c]).trim() === ""
+                                      ? "—"
+                                      : String(row?.[c])}
+                                  </Typography>
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+
+                  {selectedColumns.length > snapshotCols.length && (
+                    <Typography variant="caption" color="textSecondary" sx={{ display: "block", mt: 1 }}>
+                      Note: Only the first {snapshotCols.length} selected columns are shown to keep the snapshot readable.
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </Collapse>
 
             <FlexBox sx={{ display: "flex", justifyContent: "flex-end", gap: 1, width: "100%" }}>
               <Button variant="contained" color="primary" onClick={goToPreprocessing} disabled={columns.length === 0}>
